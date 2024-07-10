@@ -1,0 +1,124 @@
+---
+title: "3-vaCleaning"
+author: "Will Sheppard"
+output: html_document
+date: "2023-02-07"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+
+# import functions
+source('functions_visionProcessing_and_threshEstimation.R')
+```
+
+
+```{r read data}
+vaOnline <- read.csv("../data/visionTestsOnline.csv")%>%
+  filter(display == 'va')
+vaLab <- read.csv("../data/visionTestsLab.csv")%>%
+  filter(display == 'va')
+vaChart <- read.csv("../data/visualTestData.csv")%>%
+  select(id, vaChart)
+```
+
+```{r shorten va}
+vaShortOnline <- shortenVA(vaOnline)
+vaShortLab <- shortenVA(vaLab)
+```
+
+we do not remove scores with long RTs here, many conditions only have 1 response so we lose thsee data
+
+
+```{r create summary data frames}
+vaSummOnline <- summShortVA(vaShortOnline)
+vaSummLab <- summShortVA(vaShortLab)
+
+```
+
+save out summary data for psychometric functions
+```{r save summ data}
+
+write.csv(vaSummLab, "../data/vaSummLab.csv")
+write.csv(vaSummOnline, "../data/vaSummOnline.csv")
+
+```
+
+lab particiapnt 56 missing
+online = 6 missing
+```{r calc thresholds}
+vaThreshOnline <- threshVAround(vaSummOnline, 'Online') 
+vaThreshLab <- threshVAround(vaSummLab, 'Lab')
+```
+
+```{r merge data frames}
+
+vaThresh <- merge(vaThreshOnline, vaThreshLab)%>%
+  select(-ends_with('RT'))
+vaThresh <- merge(vaThresh, vaChart)
+```
+
+```{r va mod}
+rtOnlineMod <- glm(Correct ~ logMAR * responseTime, 
+                   data = vaShortOnline,
+                   family = 'binomial')
+summary(rtOnlineMod)
+rtOnlineMod$coefficients[3]*1000
+
+rtLabMod <- glm(Correct ~ logMAR * responseTime, 
+                   data = vaShortLab,
+                   family = 'binomial')
+summary(rtLabMod)
+rtLabMod$coefficients[3]*1000
+
+
+
+
+```
+
+
+```{r rt_plots}
+
+labChartdf <- vaShortLab %>%
+  select(responseTime, Correct)%>%
+  mutate(setting = 'Semi-Supervised')
+
+onlineChartdf <- vaShortOnline %>%
+  select(responseTime, Correct)%>%
+  mutate(setting = 'Unsupervised')
+
+chartDF <- rbind(labChartdf, onlineChartdf)
+chartDF$Correct <- as.factor(chartDF$Correct)
+chartDF$setting <- as.factor(chartDF$setting)
+
+
+rtDist <- ggplot(chartDF, aes(x = responseTime, color = Correct, fill = Correct))+
+  geom_density()+
+  facet_grid(~setting)+
+  xlab("Response Time (ms)")
+
+show(rtDist)
+
+rtDistZoom <- ggplot(chartDF, aes(x = responseTime, color = Correct, fill = Correct))+
+  geom_density(alpha = 0.3)+
+  facet_grid(~setting)+
+  xlab("Response Time (ms)")+
+  xlim(0, 20000)
+
+show(rtDistZoom)
+```
+
+
+```{r save data}
+write.csv(vaThresh, "../data/vaThreshClean.csv")
+```
+
+```{r save graphs}
+h = 13.5
+w = h*1.5
+
+ggsave("../figures/rtDist.png", plot = rtDist, dpi = 800,units = 'cm', height = h, width = w)
+ggsave("../figures/rtDistZoom.png", plot = rtDistZoom, dpi = 800,units = 'cm', height = h, width = w)
+```

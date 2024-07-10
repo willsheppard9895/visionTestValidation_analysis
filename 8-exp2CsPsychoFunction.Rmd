@@ -1,0 +1,329 @@
+---
+title: "8-exp2csModelling"
+author: "Will Sheppard"
+date: "2023-11-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(quickpsy)
+```
+
+read data 
+```{r read data}
+data <- read.csv("../dataExp2/csSumm.csv") %>%
+  rename(ppid = id)%>%
+  filter(ppid < 17)
+chart <- read.csv("../dataExp2/chartTest.csv")%>%
+  filter(ppid < 17) 
+id <- read.csv("../dataExp2/ppid.csv")%>%
+  filter(ppid < 17)
+```
+
+merge data frames
+```{r merge}
+data <- full_join(data, id, by = c("ppid", "condition")) %>%
+  select(-contains("X"))
+
+```
+
+set the parameters for the model estimation
+g = guess rate
+```{r params}
+
+gDenom = 26
+g = 1/gDenom
+p <- g + .5 * (1 - g)
+xMIN = 1
+```
+
+
+let's have a look at when the particiapnt gets 0% correct
+```{r zero}
+
+xero <- data %>%
+  filter(percCorrect == 0)
+
+# create lists of where perc correct = 0
+runs = rle(data$percCorrect == 0)
+
+# where do these runs exceed length 2
+longRuns = which(runs$values == TRUE & runs$lengths >=2)
+
+# check if these are present in the data, they are
+any(longRuns)
+
+# where do these runs end?
+runs.lengths.cumsum = cumsum(runs$lengths)
+ends = runs.lengths.cumsum[longRuns]
+ends
+
+# where do these runs start?
+newindex = ifelse(longRuns>1, longRuns-1, 0)
+starts = runs.lengths.cumsum[newindex] + 1
+if (0 %in% newindex) starts = c(1,starts)
+starts
+
+test <- data %>%
+  group_by(ppid, condition)%>%
+  summarise(x = row_number()==1)
+```
+
+fit the psychometric fucnitno to online data
+Participant 16 cannot be computed - condition 2 - gets 0% on 9, 11 and 22
+```{r  first fit, eval=FALSE}
+
+data <- subset(data, ppid != 6 | condition != 2)
+#data <- subset(data, ppid != 16 | condition != 2)
+#pplist <- unique(data$ppid)
+condList <- unique(data$condition)
+#condList <- 0:1
+pplist <- c(1:16)
+#pplist <- 16
+thresh <- data.frame(matrix(
+  data = NA,
+  nrow = length(pplist)*length(condList),
+  ncol = 7))
+  
+cols <- c("ppid", "condition", "session",
+            "threshold", "percCorrect",
+            "threshLower", "threshUpper")
+
+
+colnames(thresh) <- cols
+
+rm(cols)
+
+row = 0
+
+
+
+#data <- subset(data, ppid != 9 | condition != 2)
+
+for (pp in pplist) {
+  #ppData <- data %>%
+   # filter(ppid == pp)
+  
+  for (cond in condList) {
+    d <- data %>%
+      filter(ppid == pp) %>%
+      filter(condition == cond)# %>%
+      #filter(contrast > 10) #%>%
+      #filter(contrast < 21)
+    print(paste("pp = ", pp))
+    print(paste("cond = ", cond))
+    
+    ## check for long runs
+    # create lists of where perc correct = 0
+    runs = rle(d$percCorrect == 0)
+    
+    # where do these runs exceed length 2
+    longRuns = which(runs$values == TRUE & runs$lengths >=2)
+    
+    # check if these are present in the data, they are
+    longRun <- any(longRuns)
+    print(paste("long runs:", any(longRuns)))
+    
+    if(longRun == TRUE){
+      # where do these runs end?
+      runs.lengths.cumsum = cumsum(runs$lengths)
+      ends = runs.lengths.cumsum[longRuns]
+      
+      
+      # where do these runs start?
+      newindex = ifelse(longRuns>1, longRuns-1, 0)
+      starts = runs.lengths.cumsum[newindex] + 1
+      if (0 %in% newindex) starts = c(1,starts)
+      
+      print(paste("starts: ", starts, "ends: ", ends))
+      
+      cut = max(ends) - 1
+      
+      
+      cutCon <- d$contrast[cut]
+      d <- d %>%
+        filter(contrast >= cutCon)
+      
+    }
+    
+    row = row + 1
+    
+    xMAX <- max(d$contrast)
+    minPercCorr = min(d$percCorrect)
+    minContrast = min(d$contrast)
+
+    
+    if (minPercCorr < p) {
+      fitOne <- quickpsy(d = d, x = contrast, k = totalCorrect, n = totalAttempt,
+                       guess = g, lapses = TRUE, bootstrap = 'nonparametric',
+                       xmin = xMIN, xmax = xMAX, fun = weibull_fun)
+    x <- plotcurves(fitOne)+
+      scale_x_continuous(limits = c(0, max(d$contrast)), breaks = seq(0, max(d$contrast), 1))+
+      scale_y_continuous(limits = c(0,1), breaks = seq(0, 1, 0.1))+
+      ggtitle(paste("pp", pp, ":", "condition ", cond))
+    show(x)
+    
+    thresh[row, 1] <- pp
+    thresh[row, 2] <- cond
+    thresh[row, 3] <- first(d$sessionNumber)
+    thresh[row, 4] <- fitOne$thresholds[1]
+    thresh[row, 5] <- fitOne$thresholds[2]
+    thresh[row, 6] <- fitOne$thresholds[3]
+    thresh[row, 7] <- fitOne$thresholds[4]
+      
+    } else{
+      #thresh[which(pplist == pp), 1] <- pp
+      #thresh[which(pplist == pp), 2] <- minContrast
+      #thresh[which(pplist == pp), 3] <- p
+      #thresh[which(pplist == pp), 4] <- minContrast
+      #thresh[which(pplist == pp), 5] <- minContrast
+    }
+    
+    
+  }
+}
+
+#thresh <- thresh %>%
+#  filter(ppid != 6)%>%
+#  filter(ppid != 11)
+write.csv(thresh, "../dataExp2/csThresh.csv")
+```
+
+```{r descriptives}
+
+thresh <- read.csv("../dataExp2/csThresh.csv")
+
+
+
+ggplot(thresh, aes(group = as.factor(condition), color = as.factor(condition), y = threshold))+
+  geom_boxplot()
+library(rstatix)
+
+
+# normally distributed, use paired sample anova
+thresh %>%
+  group_by(condition)%>%
+  shapiro_test(threshold)
+
+```
+
+```{r mlm}
+
+library(lme4)
+library(lmerTest)
+
+thresh <- thresh %>%
+  mutate(cs = 2 + log10(1/threshold))
+
+
+
+# still normally distributed after conversion
+thresh %>%
+  group_by(condition)%>%
+  shapiro_test(cs)
+
+
+descriptives <- thresh %>%
+  group_by(condition)%>%
+  dplyr::summarise(meanCS = mean(cs),
+                   sdCS = sd(cs))
+
+# lab values fail test, use KW test
+# data is normally distributed
+
+
+# p < .001
+res.aov <- anova_test(data = thresh, dv = cs, wid = ppid, within = condition)
+get_anova_table(res.aov)
+
+
+
+# pairwise comparisons
+pwcPaired <- thresh %>%
+  pairwise_t_test(
+    cs ~ condition, paired = TRUE,
+    p.adjust.method = "BH"
+    )
+pwcPaired
+
+lmDF <- thresh %>%
+  mutate(fullBlur = case_when(
+    condition == 2 ~ -2/3,
+    TRUE ~ 1/3
+  ),
+  monoBlur = case_when(
+    condition == 2 ~ 0,
+    condition == 1 ~ -1/2,
+    condition == 0 ~ 1/2
+  )
+  )
+
+lmDF$condition <- as.factor(lmDF$condition)
+
+levels(lmDF$condition)
+
+bino_vs_lessDeg <- c( 1/3, 1/3, -2/3)
+full_vs_mono <- c(-1/2, 1/2, 0)
+
+contrasts(lmDF$condition) <- cbind(bino_vs_lessDeg, full_vs_mono)
+
+# it will be most interseting to make the binocular blur condition the first ref group as we want to see if we can test the difference between 1 blur and no blur
+
+lm <- lmer(cs ~ condition + (1|ppid),
+     data = lmDF)
+
+summary(lm)
+
+```
+
+
+```{r chart stats}
+ppList <- unique(thresh$ppid)
+
+chart <- chart %>%
+  filter(ppid %in% ppList)
+
+chartDesc <- chart %>%
+  group_by(condition)%>%
+  summarise(
+    count = n(),
+    mean = mean(cs, na.rm = TRUE),
+    sd = sd(cs, na.rm = TRUE)
+  )%>%                   # round all columns to 2 dp
+  mutate_if(is.numeric,
+            round,
+            digits = 2)
+
+chart %>%
+  group_by(condition)%>%
+  shapiro_test(cs)
+
+# not normally distributed, KW
+
+kruskal.test(cs ~ condition, data = chart)
+pairwise.wilcox.test(chart$cs, chart$condition,
+                 p.adjust.method = "BH", paired = T)
+```
+
+```{r plots}
+
+thresh <- thresh %>%
+  rename(gorillaCS = cs)
+
+combDF <- full_join(thresh, chart, by = c("ppid", "condition"))
+
+ggplot(combDF, aes(x = cs, y = gorillaCS))+
+  geom_point()+
+  geom_smooth(method = "lm")
+
+cor.test(combDF$gorillaCS, combDF$cs)
+
+library(blandr)
+
+blandr.draw(combDF$gorillaCS, combDF$cs)
+
+
+```

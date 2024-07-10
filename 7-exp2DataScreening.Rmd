@@ -1,0 +1,161 @@
+---
+title: "Exp 2 Data Screening"
+author: "Will Sheppard"
+date: "2023-08-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This function takes a list of the required packages, checks if they are installed, downloads those that are not, and then loads them.
+
+```{r packages, warning=FALSE}
+
+requiredPackages = c("tidyverse")
+for(p in requiredPackages){
+  if(!require(p,character.only = TRUE)) install.packages(p)
+  library(p,character.only = TRUE)
+}
+
+```
+
+Lets own load the data. Here we need researcher Qs, headingPerception_demographics, chart test and the online vision tests data
+```{r import data}
+
+setwd("../dataExp2")
+
+resQ <- NA
+demo <- NA
+chartTest <- NA
+visT <- NA
+visTest <- NA
+visTestAll <- NA
+
+# researcher Qs - pattern dk24.csv
+(resQfiles <- list.files(pattern = "dk24.csv"))
+for (file in resQfiles) {
+  d <- read.csv(file = file)%>%
+    select(Participant.Private.ID, ppID, sessionNumber, condition)
+
+  resQ <- rbind(resQ, d)
+}
+
+# demographics pattern e2l7.csv
+(demofiles <- list.files(pattern = "e2l7.csv"))
+for (file in demofiles) {
+  d <- read.csv(file = file)
+
+  demo <- rbind(demo, d)%>%
+    filter(Event.Index != "END OF FILE")
+}
+
+# Chart test - pattern = b7ag.csv
+(chartfiles <- list.files(pattern = "b7ag.csv"))
+for (file in chartfiles) {
+  d <- read.csv(file = file)%>%
+    filter(Zone.Name == "Zone1")%>%
+    select(Participant.Private.ID, display, Response)%>%
+    pivot_wider(id_cols = Participant.Private.ID, values_from = Response, names_from = display)
+
+  chartTest <- rbind(chartTest, d)
+}
+
+# for the vision tests we have 10 patterns, so we will need to double for loop it
+# dqjp, z5dj, og71, mva3, oex3, d4fw, f3ud, rek9, svji, s8ch
+visPats <- c("dqjp.csv", "z5dj.csv", "og71.csv", "mva3.csv", "oex3.csv", "d4fw.csv", "f3ud.csv", "rek9.csv", "svji.csv", "s8ch.csv")
+vis <- c("cs", "va")
+
+for (pat in visPats) {
+  (visFiles <- list.files(pattern = pat))
+  for (file in visFiles) {
+    d <- read.csv(file = file)
+    
+    visT <- rbind(visT, d)
+  }
+  
+  visTestAll <- rbind(visTestAll, visT)
+  
+}
+
+visTest <- visTestAll %>%
+  filter(display %in% vis) %>%
+  filter(Response.Type == "Enter Key")
+
+ACQ <- visTestAll %>%
+  filter(display == "ACQ") %>%
+  filter(Response.Type == "Enter Key") %>%
+  select(Participant.Private.ID, ACQ, ACQ_answer, Response, Correct)
+
+```
+
+now we need to select the younger participants
+
+Participant 6 and 7 have an extra session, need to figure out which ones these are
+```{r young pps}
+
+resQ <- resQ %>%
+  filter(ppID < 17)
+idsFirst <- c(8112487, 8113028, 8055867, 8056577) # ids of doubled sessions
+
+# no chart test for 8055867, remove. 8056577, retain
+sixNsevChart <- chartTest %>%
+  filter(Participant.Private.ID %in% idsFirst)
+
+idsSecond <- c(8112487, 8113028)
+
+sixNsevVis <- visTest %>%
+  filter(Participant.Private.ID %in% idsSecond)
+
+unique(sixNsevVis$Participant.Private.ID) # 8112487, remove. 8113028, retain
+
+remove <- c(8055867, 8112487)
+```
+
+let's remove these participants from the data frames.
+```{r remove errant pps}
+resQ <- subset(resQ, !(Participant.Private.ID %in% remove))
+ACQ <- subset(ACQ, !(Participant.Private.ID %in% remove))
+demo <- subset(demo, !(Participant.Private.ID %in% remove))
+visTest <- subset(visTest, !(Participant.Private.ID %in% remove))
+```
+
+Lets merge the resQ df into the other the dfs
+files get shorter as this will remove the older pps too
+```{r merge res Q}
+ACQ <- merge(resQ, ACQ, by = "Participant.Private.ID")
+demo <- merge(resQ, demo, by = "Participant.Private.ID")
+visTest <- merge(resQ, visTest, by = "Participant.Private.ID")
+```
+
+Quick ACQ check - no incorrect answers
+WOOOPPP
+```{r ACQ check}
+
+wrongACQ <- ACQ %>%
+  filter(Correct == 0)
+```
+
+DOBs
+particpant 7 down as 14 months old - actually 253
+```{r DOBs}
+demo$dob.inmonths <- replace(demo$dob.inmonths, demo$dob.inmonths == 14, 253)
+
+min(demo$dob.inmonths)/12
+max(demo$dob.inmonths)/12
+mean(demo$dob.inmonths)/12
+sd(demo$dob.inmonths)/12
+```
+
+lets look at the gender split
+```{r gender}
+table(demo$sex)
+
+```
+
+hoe about handedness
+```{r hand}
+
+table(demo$Handedness)
+```

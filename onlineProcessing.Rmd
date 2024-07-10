@@ -1,0 +1,427 @@
+---
+title: "onlineProcessing"
+output: html_document
+date: "2022-08-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(data.table)
+```
+
+## read in online data
+
+this chunk sets the working directory and then imports the seperate data files for the demographics questionaire, the combined vision tests and the debrief.
+the debrief is extracted to allow the prize to be given.
+
+```{r online data}
+setwd('../data/online')
+
+demoOnline <- read.csv('./data_exp_88988-v10_questionnaire-gb9f.csv')
+emailOnline <- read.csv('./data_exp_88988-v10_questionnaire-mq5s.csv')
+
+# read in all task files and combine into a single DF for vision tests
+# use this once all files have data in
+#files = list.files(pattern="*task*")
+bigFiles <- file.info(list.files(pattern="*task*")) %>%
+  filter(size > 2000)
+files <- rownames(bigFiles)
+#files = 
+visionTestsOnline = do.call(rbind, lapply(files, fread))
+rm(files)
+rm(bigFiles)
+
+visionTestsOnline <- as.data.frame(unclass(visionTestsOnline))
+```
+Here we extract the participant id information:
+letter of first name, middle name and place of birth + age in months
+
+this will later be matched to the participant.private.id and the experiment.id to uniquely identify their data
+
+replace 'I do not have a middle name' with ''
+```{r online demographics}
+demoOnline <- demoOnline %>%
+  mutate(middleName = case_when(
+    middleName == "I do not have a middle name" ~ '',
+    TRUE ~ middleName
+  ))
+
+
+idOnline <- demoOnline %>%
+  filter(Event.Index != 'END OF FILE') %>%
+  mutate(id = paste(firstName, middleName, birthPlace, dob.inmonths, sep = ''))%>%
+  select(id, Participant.Private.ID, Experiment.ID)
+
+```
+
+The next chunk joins the id daata frame to the visionTestsAll dataframe
+```{r online id join}
+visionTestsOnline <- merge(visionTestsOnline, idOnline, by = c('Participant.Private.ID', 'Experiment.ID'))
+
+```
+
+we will now remove rows that do not include useful information 
+``` {r online row clean}
+visionTestsOnline <- visionTestsOnline %>%
+  filter(Zone.Type == 'response_text_entry')
+
+```
+
+seperate cs, va and acq data
+```{r online seperate tasks}
+acqOnline <- visionTestsOnline %>%
+  filter(display == 'ACQ')
+csOnline <- visionTestsOnline %>%
+  filter(display == 'cs')
+vaOnline <- visionTestsOnline %>%
+  filter(display == 'va')
+
+```
+
+```{r va functions}
+shortenVA <- function(input){
+  # this funciton selects the columns necassary to calculate the Va threshold as wella s the ID and reaction time
+  # # thescreen name is revalued to represent the logMAR value of the stimuli
+  #Reaction time is converted to a numeric and renamed response time
+  # this is due to this being the measure named reaction time by gorilla being the time from the presentation of the stimuli to the time when the participant pressing enter following submitting there answer. therefore, this cannot be deemed a true measure of reaction time.
+  output <- input %>% 
+    select(id, Screen.Name, Attempt, Correct, Reaction.Time)%>%
+    mutate(logMAR = 1.1-as.numeric(substring(Screen.Name, 6))/10,
+           responseTime = as.numeric(Reaction.Time)
+         )
+  return(output)
+}
+
+summShortVA <- function(input){
+  # this funciton calculates the proportion of correct answers for each logMAR value by participant
+  # the mean RT is also calculated 
+  output <- input %>%
+  group_by(id, logMAR)%>%
+  summarise(totalAttempt = sum(Attempt),
+            totalCorrect = sum(Correct),
+            meanResponseTime = mean(responseTime, na.rm = TRUE))%>%
+  mutate(percCorrect = totalCorrect/totalAttempt)
+  return(output)
+}
+
+threshVA <- function(input, setting){
+  # VA threshold is calculated in a similar way to letter wisescorign works for a standard chart - the percentage correct for each level is subtracted from the highest possible score.
+  output <- input%>%
+  group_by(id)%>%
+  summarise(x = 1.1-(sum(percCorrect)/10),
+            y = mean(meanResponseTime))
+  
+  output[[paste('va',setting, sep = '')]] <- output$x
+  output[[paste('va',setting,'RT', sep = '')]] <- output$y
+  
+  output <- output %>%
+    select(-x, -y)
+  
+  return(output)
+}
+```
+
+Estimate va threshold
+done in a similar way to opticians charts e.g. a completely correct line takes 0.1 logMAR off total score.
+this can be done by totaling the percentage correct, dividing by 10 and taking this fromt he upper limit of the test, in this case 1.1 logMAR
+```{r online va estimation}
+
+
+vaShortOnline <- shortenVA(vaOnline)
+vaSummOnline <- summShortVA(vaShortOnline)
+vaThreshOnline <- threshVA(vaSummOnline, 'Online')
+
+head(vaThreshOnline)
+```
+
+```{r cs functions}
+
+shortenCS <- function(input){
+  output <- input %>%
+  select(id, Screen.Name, Attempt, Correct, Reaction.Time)%>%
+  mutate(contrast = 101 - as.numeric(substring(Screen.Name, 6)),
+         responseTime = as.numeric(Reaction.Time)
+         )%>%
+    select(-Reaction.Time)
+  return(output)
+}
+
+summShortCS <- function(input){
+  output <- input %>%
+  group_by(id, contrast)%>%
+  summarise(totalAttempt = sum(Attempt),
+            totalCorrect = sum(Correct),
+            meanResponseTime = mean(responseTime, na.rm = TRUE))%>%
+  mutate(percCorrect = totalCorrect/totalAttempt)%>%
+  ungroup()
+  return(output)
+}
+
+
+
+
+
+threshCS <- function(input, setting){
+  
+  output <- input %>%
+  filter(percCorrect > .5)%>%
+  group_by(id)%>%
+  summarise(contrastThresh = min(contrast),
+            rt = mean(meanResponseTime))%>%
+  group_by(id)%>%
+  summarise(x = 2 + log10(1/contrastThresh),
+            y = rt
+            )
+  
+  
+  output[[paste('cs',setting, sep = '')]] <- output$x
+  output[[paste('cs',setting,'RT', sep = '')]] <- output$y
+  
+  output <- output %>%
+    select(-x, -y)
+  
+  return(output)
+}
+
+```
+
+Estimate CS threshold, this is the lowest value that participant scores 0.5 or higher for perc correct
+
+check the calculation of logCS against pelli robinson chart in lab.
+```{r online cs estimation}
+csShortOnline <- shortenCS(csOnline)
+
+csSummOnline <- summShortCS(csShortOnline) 
+
+csThreshOnline <- threshCS(csSummOnline, 'Online') 
+
+head(csThreshOnline)
+  
+```
+
+merge data frames together
+```{r online df merge}
+onlineDF <- merge(csThreshOnline, vaThreshOnline, on = 'id')
+
+head(onlineDF)
+
+```
+
+# let's import the lab collected data for the online tests
+```{r lab data}
+setwd('../data/lab')
+
+demoLab <- read.csv('./data_exp_89874-v8_questionnaire-u67w.csv')
+emailLab <- read.csv('./data_exp_89874-v8_questionnaire-mq5s.csv')
+
+# create list of chart files
+chartFiles <- c("data_exp_89874-v8_task-fwvh.csv", "data_exp_89874-v8_task-ysdh.csv")
+
+# read in all task files and combine into a single DF for vision tests
+# use this once all files have data in
+#files = list.files(pattern="*task*")
+bigFiles <- file.info(list.files(pattern="*task*")) %>%
+  filter(size > 2000)
+
+bigFiles$name <- rownames(bigFiles) 
+
+bigFiles <- bigFiles %>%
+  filter(!name %in% chartFiles)
+files <- row.names(bigFiles)
+
+
+#files = 
+visionTestsLab = do.call(rbind, lapply(files, fread))
+rm(files)
+rm(bigFiles)
+
+visionTestsLab <- as.data.frame(unclass(visionTestsLab))
+```
+Here we extract the participant id information:
+letter of first name, middle name and place of birth + age in months
+
+this will later be matched to the participant.private.id and the experiment.id to uniquely identify their data
+```{r lab demographics}
+demoLab <- demoLab %>%
+  mutate(middleName = case_when(
+    middleName == "I do not have a middle name" ~ '',
+    TRUE ~ middleName
+  ))
+
+idLab <- demoLab%>%
+  filter(Event.Index != 'END OF FILE') %>%
+  mutate(id = paste(firstName, middleName, birthPlace, dob.inmonths, sep = ''))%>%
+  select(id, Participant.Private.ID, Experiment.ID)
+
+```
+
+The next chunk joins the id daata frame to the visionTestsAll dataframe
+```{r lab id join}
+visionTestsLab <- merge(visionTestsLab, idLab, by = c('Participant.Private.ID', 'Experiment.ID'))
+
+```
+
+we will now remove rows that do not include useful information 
+``` {r lab row clean}
+visionTestsLab <- visionTestsLab %>%
+  filter(Zone.Type == 'response_text_entry')
+
+```
+
+seperate cs, va and acq data
+```{r lab seperate tasks}
+acqLab <- visionTestsLab %>%
+  filter(display == 'ACQ')
+csLab <- visionTestsLab %>%
+  filter(display == 'cs')
+vaLab <- visionTestsLab %>%
+  filter(display == 'va')
+
+```
+Estimate va threshold
+done in a similar way to opticians charts e.g. a completely correct line takes 0.1 logMAR off total score.
+this can be done by totaling the percentage correct, dividing by 10 and taking this fromt he upper limit of the test, in this case 1.1 logMAR
+```{r lab va estimation}
+vaShortLab <- shortenVA(vaLab)
+
+vaSummLab <- summShortVA(vaShortLab)
+
+vaThreshLab <- threshVA(vaSummLab, 'Lab')
+
+head(vaThreshLab)
+```
+Estimate CS threshold, this is the lowest value that participant scores 0.5 or higher for perc correct
+
+check the calculation of logCS against pelli robinson chart in lab.
+```{r lab cs estimation}
+csShortLab <- shortenCS(csLab)# %>%
+  #select(id, Screen.Name, Attempt, Correct)%>%
+  #mutate(contrast = 101 - as.numeric(substring(Screen.Name, 6))
+  #       )
+
+csSummLab <- summShortCS(csShortLab)# %>%
+  #group_by(id, contrast)%>%
+  #summarise(totalAttempt = sum(Attempt),
+  #          totalCorrect = sum(Correct))%>%
+  #mutate(percCorrect = totalCorrect/totalAttempt)%>%
+  #ungroup()
+
+csThreshLab <- threshCS(csSummLab, 'Lab')# %>%
+  #filter(percCorrect > .5)%>%
+  #group_by(id)%>%
+  #summarise(contrastThresh = min(contrast))%>%
+  #group_by(id)%>%
+  #summarise(csLab = 2 + log10(1/contrastThresh))
+
+head(csThreshLab)
+  
+```
+
+merge data frames together
+```{r lab df merge}
+labDF <- merge(csThreshLab, vaThreshLab, on = 'id')
+
+head(labDF)
+
+```
+```{r merge lab n online df}
+computerDF <- merge(onlineDF, labDF, on = 'id', all = TRUE)
+
+head(computerDF)
+
+```
+# let's import the chart data.
+this should be pretty simple - we need to pivot wider and select vaScores and csScores column.
+we will then merge with the online and lab data.
+```{r chart import data}
+setwd('../data/lab')
+
+chartA <- read.csv("data_exp_89874-v8_task-fwvh.csv")
+chartB <- read.csv("data_exp_89874-v8_task-ysdh.csv")
+
+outcome <- c("csScore", "vaScore")
+
+chartData <- rbind(chartA, chartB)%>%
+  filter(display %in% outcome)%>%
+  filter(!is.na(Response)) %>%
+  pivot_wider(id_cols = Participant.Private.ID, names_from = display, values_from = Response)%>%
+  rename(csChart = csScore,
+         vaChart = vaScore) 
+
+
+chartData <- merge(idLab, chartData, on = "Participant.Private.ID") %>%
+  select(-Participant.Private.ID, -Experiment.ID)
+
+
+```
+
+```{r merge computer n chart df}
+DF <- merge(computerDF, chartData, on = 'id', all = TRUE)
+
+col_order <- c("id",
+               "csOnline", "csOnlineRT", 
+               "csLab", "csLabRT",    
+               "csChart", 
+               "vaOnline",  "vaOnlineRT", 
+               "vaLab", "vaLabRT",
+               "vaChart")
+
+   
+DF <- DF[, col_order]
+DF
+
+```
+
+```{r replace incorrect id cols}
+
+DF$id <- replace(DF$id, DF$id == 'amh302', 'amh303')
+DF$id <- replace(DF$id, DF$id == 'jrc280', 'jrc281')
+DF$id <- replace(DF$id, DF$id == 'sss422', 'sss421')
+DF$id <- replace(DF$id, DF$id == 'nh372', 'nh371')
+DF$id <- replace(DF$id, DF$id == 'hju276', 'hju275')
+DF$id <- replace(DF$id, DF$id == 'yx338', 'yz338')
+DF$id <- replace(DF$id, DF$id == 'dhc321', 'dhc320')
+DF$id <- replace(DF$id, DF$id == 'lml305', 'iml305')
+DF$id <- replace(DF$id, DF$id == 'ad378', 'asd378')
+
+
+#DF
+idVals <- unique(DF$id)#
+testRows <- length(DF$id)
+testCols <- ncol(DF)
+
+DF2 = data.frame(matrix(NA,    # Create empty data frame
+                          nrow = testRows,
+                          ncol = testCols))
+colnames(DF2) <- colnames(DF)
+
+for (val in idVals)
+{
+  
+  if (nrow(subset(DF, id == val))>1)
+  {
+    x <- DF %>%
+      filter(id == val)%>%
+      group_by(id)%>%
+      summarise(across(starts_with(c('cs', 'va')), ~sum(., na.rm = TRUE)))
+
+    DF2[which(DF$id == val),] <- x
+  }
+  else
+  {
+    DF2[which(DF$id == val),] <- DF[which(DF$id == val),]
+  }
+}
+
+DF2 <- DF2[!duplicated(DF2$id),]
+DF2
+
+```
+
+save data
+```{r save data}
+write.csv(DF2, "../data/thresholdDF.csv")
+```
+

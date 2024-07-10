@@ -1,0 +1,71 @@
+---
+title: "blandAltman"
+output: html_document
+date: "2022-09-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+
+```{r load packages}
+library(blandr)
+library(ggplot2)
+library(psych)
+```
+
+## read data
+i have simmed 100 particiapnts from the 4 pilot data sets
+```{r read data, echo=FALSE}
+df <- read.csv("../data/onlineThresholdsNorway.csv")
+
+
+df <- df %>%
+  mutate(csOnlinePrecLim = case_when(
+    csOnlinePrec > 1.92 ~ 1.92,
+    TRUE ~ csOnlinePrec
+  ))
+```
+# correlation
+are the tests related?
+```{r corr}
+corrdf <- df%>%
+  select(-X, -id, -ends_with('RT', ignore.case = F))
+
+psych::corr.test(x = corrdf, adjust = 'fdr')
+```
+
+```{r bland stats}
+p = 0.95
+
+csCL <- blandr.statistics(df$csChart, df$csLab, sig.level = p)
+csCO <- blandr.statistics(df$csChart, df$csOnline, sig.level = p)
+csLO <- blandr.statistics(df$csLab, df$csOnline, sig.level = p)
+
+vaCL <- blandr.statistics(df$vaChart, df$vaLab, sig.level = p)
+vaCO <- blandr.statistics(df$vaChart, df$vaOnline, sig.level = p)
+vaLO <- blandr.statistics(df$vaLab, df$vaOnline, sig.level = p)
+```
+
+# draw BA plots
+```{r BA plots}
+blandr.draw(df$csChart, df$csLab)+ggtitle('chart cs - lab cs')
+blandr.draw(df$csChart, df$csOnline)+ggtitle('chart cs - online cs')
+blandr.draw(df$csLab, df$csOnline)+ggtitle('lab cs - online cs')
+
+blandr.draw(df$vaChart, df$vaLab)+ggtitle('chart va - lab va')
+blandr.draw(df$vaChart, df$vaOnline)+ggtitle('chart va - online va')
+blandr.draw(df$vaLab, df$vaOnline)+ggtitle('lab va - online va')
+```
+
+```{r bland prec}
+blandr.draw(df$csChart, df$csLabPrec)+ggtitle('chart cs - lab PREC cs')
+blandr.draw(df$csChart, df$csOnlinePrec)+ggtitle('chart cs - online PREC cs')
+blandr.draw(df$csLabPrec, df$csOnlinePrec)+ggtitle('lab PREC cs - online PREC cs')
+
+blandr.draw(df$csChart, df$csOnlinePrecLim)+ggtitle('chart cs - online PREC LIM cs')
+
+```

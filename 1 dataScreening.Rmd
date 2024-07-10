@@ -1,0 +1,220 @@
+---
+title: "1. Initial data screening"
+author: "Will Sheppard"
+date: "2022-11-11"
+output: html_document
+---
+This script will screen for any inconsistencies that mean a participant may need to be excluded from the study - ACQ errors, Double check that no U18s have participated etc.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(data.table)
+```
+## read in online data
+
+this chunk sets the working directory and then imports the seperate data files for the demographics questionaire, the combined vision tests and the debrief.
+the debrief is extracted to allow the prize to be given.
+
+```{r online data}
+setwd('../data/onlineNorway')
+
+demoOnline <- read.csv('./data_exp_102468-v2_questionnaire-gb9f.csv')
+emailOnline <- read.csv('./data_exp_102468-v2_questionnaire-mq5s.csv')
+
+# read in all task files and combine into a single DF for vision tests
+# use this once all files have data in
+#files = list.files(pattern="*task*")
+bigFiles <- file.info(list.files(pattern="*task*")) %>%
+  filter(size > 2000)
+files <- rownames(bigFiles)
+#files = 
+visionTestsOnline = do.call(rbind, lapply(files, fread))
+rm(files)
+rm(bigFiles)
+
+visionTestsOnline <- as.data.frame(unclass(visionTestsOnline))
+
+length(unique(visionTestsOnline$Participant.Public.ID))
+```
+
+Not all participants completed the online session on a pc/tablet as asked
+```{r pc}
+pcPP <- demoOnline %>%
+  filter(Participant.Device.Type != 'mobile')%>%
+  select(Participant.Public.ID)
+
+pcPP <- as.list(pcPP$Participant.Public.ID)
+
+
+
+visionTestsOnline <- visionTestsOnline %>%
+  filter(Participant.Public.ID %in% pcPP)
+
+
+# how many were excluded?
+notPC <- demoOnline %>%
+  filter(Participant.Device.Type == 'mobile')%>%
+  select(Participant.Public.ID)
+notPC <- length(unique(notPC$Participant.Public.ID))
+
+```
+
+`r notPC` were excluded for using a mobile rather than PC or laptop or tablet
+
+# let's import the lab collected data for the online tests
+```{r lab data}
+setwd('../data/labNorway')
+
+demoLab <- read.csv('./data_exp_102467-v5_questionnaire-u67w.csv')
+emailLab <- read.csv('./data_exp_102467-v5_questionnaire-mq5s.csv')
+
+# create list of chart files
+chartFiles <- c("data_exp_102467-v5_task-fwvh.csv", "data_exp_102467-v5_task-ysdh.csv")
+preTest <- 'data_exp_102467-v5_task-4atu.csv'
+
+# read in all task files and combine into a single DF for vision tests
+# use this once all files have data in
+#files = list.files(pattern="*task*")
+bigFiles <- file.info(list.files(pattern="*task*")) %>%
+  filter(size > 2000)
+
+bigFiles$name <- rownames(bigFiles) 
+
+bigFiles <- bigFiles %>%
+  filter(!name %in% chartFiles)%>%
+  filter(name != preTest)
+files <- row.names(bigFiles)
+
+
+#files = 
+# why is this not working?!
+visionTestsLab = do.call(rbind, lapply(files, fread))
+rm(files)
+rm(bigFiles)
+
+visionTestsLab <- as.data.frame(unclass(visionTestsLab))
+
+```
+
+```{r merge v4 files}
+setwd('../data/labNorway/v4')
+
+
+
+demoLab_v4 <- read.csv('./data_exp_102467-v4_questionnaire-u67w.csv')
+emailLab_v4 <- read.csv('./data_exp_102467-v4_questionnaire-mq5s.csv')
+
+
+# create list of chart files
+chartFiles_v4 <- c("data_exp_102467-v4_task-fwvh.csv", "data_exp_102467-v4_task-ysdh.csv")
+preTest_v4 <- 'data_exp_102467-v4_task-4atu.csv'
+
+# read in all task files and combine into a single DF for vision tests
+# use this once all files have data in
+#files = list.files(pattern="*task*")
+bigFiles_v4 <- file.info(list.files(pattern="*task*")) %>%
+  filter(size > 2000)
+
+bigFiles_v4$name <- rownames(bigFiles_v4)
+
+bigFiles_v4 <- bigFiles_v4 %>%
+  filter(!name %in% chartFiles_v4)%>%
+  filter(name != preTest_v4)
+files_v4 <- row.names(bigFiles_v4)
+
+
+visionTestsLab_v4 = do.call(rbind, lapply(files_v4, fread))
+rm(files_v4)
+rm(bigFiles_v4)
+
+visionTestsLab_v4 <- as.data.frame(unclass(visionTestsLab_v4))
+```
+```{r bind v4 and v5}
+visionTestsLab <- rbind(visionTestsLab, visionTestsLab_v4)
+```
+
+
+
+
+```{r select response rows}
+visionTestsOnline <- visionTestsOnline %>%
+  filter(Zone.Type == 'response_text_entry') %>%
+  rename(id = Participant.Public.ID)
+
+visionTestsLab <- visionTestsLab%>%
+  filter(Zone.Type == 'response_text_entry')%>%
+  rename(id = Participant.Public.ID)
+
+```
+
+
+how many participants did we start with?
+```{r participants}
+
+labPPS <- unique(visionTestsLab$id)
+onlinePPS <- unique(visionTestsOnline$id)
+
+length(which(onlinePPS %in% labPPS))
+length(which(labPPS  %in% onlinePPS))
+
+visionTestsLab <- visionTestsLab %>%
+  filter(id %in% onlinePPS)
+
+visionTestsOnline <- visionTestsOnline %>%
+  filter(id %in% labPPS)
+
+```
+
+Participant 7 got the answer right but also typed in the question, include
+Participant 30 got an ACQ question wrong in both sessions, exclude - excluded by previous step
+participant 48 got the acq wrong in the online session, with shorter RT and worse performance, exclude.- excluded by previous step
+```{r ACQ check}
+acqOnline <- visionTestsOnline %>%
+  filter(display == 'ACQ')
+acqLab <- visionTestsLab %>%
+  filter(display == 'ACQ')
+
+#which partiicpants got this wrong?
+acqOnlineWrong <- acqOnline %>%
+  filter(Incorrect == 1)
+acqLabWrong <- acqLab %>%
+  filter(Incorrect == 1)%>%
+  filter(id != 7)
+
+# create a list of participants who got these questions wrong
+acqA <- as.list(acqOnlineWrong$id)
+acqB <- as.list(acqLabWrong$id)
+
+acqWrong <- c(acqA, acqB)
+```
+
+```{r acq removal}
+acqWrong <- unique(acqWrong)
+
+visionTestsLab <- visionTestsLab %>%
+  filter(!id %in% acqWrong)
+visionTestsOnline <- visionTestsOnline %>%
+  filter(!id %in% acqWrong)
+
+length(unique(visionTestsLab$id))
+```
+
+remove all participants not included in CS data
+```{r cs removal, eval=FALSE}
+
+csPP <- read.csv("../data/csPPS.csv")
+csPP <- as.list(csPP$id)
+
+visionTestsLab <- visionTestsLab %>%
+  filter(id %in% csPP)
+visionTestsOnline <- visionTestsOnline %>%
+  filter(id %in% csPP)
+```
+
+So therefore we now have a sample of `r length(unique(visionTestsLab$id))` participants
+
+```{r save data}
+write.csv(visionTestsLab, "../data/visionTestsLab.csv")
+write.csv(visionTestsOnline, "../data/visionTestsOnline.csv")
+```

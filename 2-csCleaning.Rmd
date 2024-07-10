@@ -1,0 +1,87 @@
+---
+title: "2. CS data cleaning"
+author: "Will Sheppard"
+date: "2022-11-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+
+# import functions
+source('functions_visionProcessing_and_threshEstimation.R')
+```
+
+
+```{r read data}
+csOnline <- read.csv("../data/visionTestsOnline.csv")%>%
+  filter(display == 'cs')
+csLab <- read.csv("../data/visionTestsLab.csv")%>%
+  filter(display == 'cs')
+csChart <- read.csv("../data/visualTestData.csv")%>%
+  select(id, csChart)
+```
+
+```{r shorten CS}
+csShortOnline <- shortenCS(csOnline)
+csShortLab <- shortenCS(csLab)
+```
+
+
+Within a participant and within a contrast level, there is a negative relationship between response time and correctness.
+This suggests that removing responses with a particularly long response time may improve accuracy
+
+mean correlation between response time and correctness for both lab and online recruitment is -0.12 both of which are significantly different to 0. 
+
+t tests show that the correlations beare sig. different 
+```{r does RT predict correct, eval=FALSE}
+rtOnlineMod <- glm(Correct ~ id + contrast + responseTime, 
+                   data = csShortOnline,
+                   family = 'binomial')
+
+rtLabMod <- glm(Correct ~ id + contrast + responseTime, 
+                   data = csShortLab,
+                   family = 'binomial')
+
+summary(rtOnlineMod)
+summary(rtLabMod)
+
+```
+
+lets remove responses where particiapnts took excelptionally long to respond
+```{r clean short data, eval=FALSE}
+upper <- 1.96
+
+csShortOnlineClean <- csShortOnline %>%
+  group_by(id, contrast)%>%
+  mutate(rtUpper = (upper*sd(responseTime)+mean(responseTime)))%>%
+  filter(responseTime < rtUpper)
+csShortLabClean <- csShortLab %>%
+  group_by(id, contrast)%>%
+  mutate(rtUpper = (upper*sd(responseTime)+mean(responseTime)))%>%
+  filter(responseTime < rtUpper)
+
+```
+
+```{r create summary data frames}
+csSummOnline <- summShortCS(csShortOnline)
+#csSummOnlineClean <- summShortCS(csShortOnlineClean)
+
+csSummLab <- summShortCS(csShortLab)
+#csSummLabClean <- summShortCS(csShortLabClean)
+```
+
+
+```{r combine datasets, eval=FALSE}
+
+csThresh <- merge(csThreshOnline, csThreshLab)
+csThresh <- merge(csThresh, csChart)
+```
+
+```{r save data}
+write.csv(csSummLab, "../data/csSummLab.csv")
+write.csv(csSummOnline, "../data/csSummOnline.csv")
+#write.csv(csThresh, "../data/csThreshClean.csv")
+```

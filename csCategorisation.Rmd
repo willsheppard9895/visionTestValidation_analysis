@@ -1,0 +1,99 @@
+---
+title: "csCategorisation"
+output: html_document
+date: "2022-11-10"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load packages}
+library(blandr)
+library(tidyverse)
+library(psych)
+```
+
+## read data
+i have simmed 100 particiapnts from the 4 pilot data sets
+```{r read data, echo=FALSE}
+df <- read.csv("../data/csThreshClean.csv")%>%
+  select(-contains("RT", ignore.case = F))%>%
+  select(id, contains('cs'))
+
+```
+
+```{r set categories}
+
+dfCat <- df %>%
+  mutate(chartCat = case_when(
+    csChart <= 0.5 ~ 5,
+    csChart > 0.5 & csChart <= 1 ~ 4,
+    csChart > 1 & csChart <= 1.7 ~ 3,
+    csChart > 1.5 & csChart <= 1.7 ~ 2,
+    csChart > 1.7 ~ 1),
+    onlineCat = case_when(
+    csOnline <= 0.5 ~ 5,
+    csOnline > 0.5 & csOnline <= 1 ~ 4,
+    csOnline > 1 & csOnline <= 1.7 ~ 3,
+    csOnline > 1.5 & csOnline <= 1.75 ~ 2,
+    csOnline > 1.7 ~ 1),
+    labCat = case_when(
+    csLab <= 0.5 ~ 5,
+    csLab > 0.5 & csLab <= 1 ~ 4,
+    csLab > 1 & csLab <= 1.7 ~ 3,
+    csLab > 1.5 & csLab <= 1.7 ~ 2,
+    csLab > 1.7 ~ 1),
+  )%>%
+  select(contains('cat'))
+
+```
+
+
+```{r agreement}
+dfAgree <- dfCat %>%
+  mutate(chart_online = case_when(
+    chartCat == onlineCat ~ 1,
+    chartCat != onlineCat ~ 0
+  ),
+  chart_lab = case_when(
+    chartCat == labCat ~ 1,
+    chartCat != labCat ~ 0),
+  lab_online = case_when(
+    labCat == onlineCat ~ 1,
+    labCat != onlineCat ~ 0
+  )
+  )%>%
+  select(-ends_with('Cat'))%>%
+  summarise(chart_onlinePerc = mean(chart_online),
+            chart_labPerc = mean(chart_lab),
+            lab_onlinePerc = mean(lab_online))
+```
+
+```{r graphs}
+dfChart <- dfCat %>%
+  pivot_longer(cols = ends_with('Cat'), names_to = 'method', values_to = 'cat')%>%
+  mutate(method = case_when(
+    method == "chartCat" ~ "Clinical",
+    method == "labCat" ~ "Online Semi-Supervised",
+    method == "onlineCat" ~ "Online Unsupervised"
+  ))
+
+csCat <- ggplot(dfChart, aes(x = as.factor(cat)))+
+  geom_bar()+
+  facet_grid(~method)+ 
+  scale_x_discrete(breaks = c("1", "2", "3", "4", "5"),
+                   labels = c("N<=60", "N>60", "M", "S", "P"))+ 
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+show(csCat)
+```
+
+```{r save plots}
+
+h = 10
+w = h*1.4
+ggsave("../figures/csCat.png", plot = csCat, dpi = 800,units = 'cm', height = h, width = w)
+```
+

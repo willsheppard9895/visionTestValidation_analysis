@@ -1,0 +1,284 @@
+---
+title: "9-exp2VaPsychoFunction"
+author: "Will Sheppard"
+date: "2023-11-09"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+library(tidyverse)
+library(quickpsy)
+```
+
+read data 
+```{r read data}
+data <- read.csv("../dataExp2/vaSumm.csv") %>%
+  rename(ppid = id)%>%
+  filter(ppid < 17)
+chart <- read.csv("../dataExp2/chartTest.csv")%>%
+  filter(ppid < 17) 
+id <- read.csv("../dataExp2/ppid.csv")%>%
+  filter(ppid < 17)
+```
+
+merge data frames
+```{r merge}
+data <- full_join(data, id, by = c("ppid", "condition")) %>%
+  select(-contains("X"))
+
+```
+
+set the parameters for the model estimation
+g = guess rate
+```{r params}
+
+gDenom = 26
+g = 1/gDenom
+p <- g + .5 * (1 - g)
+#xMIN = 
+```
+
+let's have a look at when the particiapnt gets 0% correct
+```{r zero}
+
+xero <- data %>%
+  filter(percCorrect == 0)
+
+# create lists of where perc correct = 0
+runs = rle(data$percCorrect == 0)
+
+# where do these runs exceed length 2
+longRuns = which(runs$values == TRUE & runs$lengths >=2)
+
+# check if these are present in the data, they are
+any(longRuns)
+
+# there are no long runs so no need to remove anything
+```
+fit the psychometric fucnitno to online data
+```{r  first fit}
+pplist <- unique(data$ppid)
+condList <- unique(data$condition)
+#condList <- 0:1
+#pplist <- c(1:15)
+#pplist <- 1:5
+
+
+thresh <- data.frame(matrix(
+  data = NA,
+  nrow = length(pplist)*length(condList),
+  ncol = 7))
+  
+cols <- c("ppid", "condition", "session",
+            "threshold", "percCorrect",
+            "threshLower", "threshUpper")
+
+
+colnames(thresh) <- cols
+
+rm(cols)
+
+row = 0
+
+
+
+#data <- subset(data, ppid != 9 | condition != 2)
+
+for (pp in pplist) {
+  #ppData <- data %>%
+   # filter(ppid == pp)
+  
+  for (cond in condList) {
+    d <- data %>%
+      filter(ppid == pp) %>%
+      filter(condition == cond)# %>%
+      #filter(logMAR > 10) #%>%
+      #filter(logMAR < 21)
+    print(paste("pp = ", pp))
+    print(paste("cond = ", cond))
+    
+    ## check for long runs
+    # create lists of where perc correct = 0
+    runs = rle(d$percCorrect == 0)
+    
+    # where do these runs exceed length 2
+    longRuns = which(runs$values == TRUE & runs$lengths >=2)
+    
+    # check if these are present in the data, they are
+    longRun <- any(longRuns)
+    print(paste("long runs:", any(longRuns)))
+    
+    if(longRun == TRUE){
+      # where do these runs end?
+      runs.lengths.cumsum = cumsum(runs$lengths)
+      ends = runs.lengths.cumsum[longRuns]
+      
+      
+      # where do these runs start?
+      newindex = ifelse(longRuns>1, longRuns-1, 0)
+      starts = runs.lengths.cumsum[newindex] + 1
+      if (0 %in% newindex) starts = c(1,starts)
+      
+      print(paste("starts: ", starts, "ends: ", ends))
+      
+      cut = max(ends) - 1
+      
+      
+      cutCon <- d$logMAR[cut]
+      d <- d %>%
+        filter(logMAR >= cutCon)
+      
+    }
+    
+    row = row + 1
+    
+    xMIN <- min(d$logMAR)
+    xMAX <- max(d$logMAR)
+    minPercCorr = min(d$percCorrect)
+    minlogMAR = min(d$logMAR)
+
+    
+    if (minPercCorr < p) {
+      fitOne <- quickpsy(d = d, x = logMAR, k = totalCorrect, n = totalAttempt,
+                       guess = g, lapses = TRUE, bootstrap = 'nonparametric',
+                       xmin = xMIN, xmax = xMAX, fun = logistic_fun)
+      
+      ## 
+    x <- plotcurves(fitOne)+
+      scale_x_continuous(limits = c(min(data$logMAR), max(data$logMAR)), breaks = seq(min(data$logMAR), max(data$logMAR), 0.1))+
+      scale_y_continuous(limits = c(0,1), breaks = seq(0, 1, 0.1))+
+      ggtitle(paste("pp", pp, ":", "condition ", cond, "threshold :", fitOne$thresholds[1]))
+    show(x)
+    
+    thresh[row, 1] <- pp
+    thresh[row, 2] <- cond
+    thresh[row, 3] <- first(d$sessionNumber)
+    thresh[row, 4] <- fitOne$thresholds[1]
+    thresh[row, 5] <- fitOne$thresholds[2]
+    thresh[row, 6] <- fitOne$thresholds[3]
+    thresh[row, 7] <- fitOne$thresholds[4]
+      
+    } else{
+      #thresh[which(pplist == pp), 1] <- pp
+      #thresh[which(pplist == pp), 2] <- minlogMAR
+      #thresh[which(pplist == pp), 3] <- p
+      #thresh[which(pplist == pp), 4] <- minlogMAR
+      #thresh[which(pplist == pp), 5] <- minlogMAR
+    }
+    
+    
+  }
+}
+
+thresh$threshold <- round(thresh$threshold, digits = 2)
+
+# write.csv(thresh, "../dataExp2/vaThresh.csv")
+
+
+
+```
+
+
+```{r inspection}
+
+thresh <- read.csv("../dataExp2/vaThresh.csv")
+
+threshFilt <- thresh %>%
+  filter(ppid != 5) %>%
+  filter(ppid != 7) %>%
+  filter(ppid != 9)
+
+ggplot(threshFilt, aes(group = as.factor(condition), color = as.factor(condition), y = threshold))+
+  geom_boxplot()
+
+ggplot(threshFilt, aes(x = threshold, group = as.factor(condition), color = as.factor(condition)))+
+  geom_density()
+
+
+threshFilt %>% group_by(condition) %>% summarise(mean = round(mean(threshold), digits = 2))
+
+# no blur conditions not normally distributed
+require(rstatix)
+threshFilt %>%
+  filter(condition == 0)%>%
+  shapiro_test(threshold)
+threshFilt %>%
+  filter(condition == 1)%>%
+  shapiro_test(threshold)
+threshFilt %>%
+  filter(condition == 2)%>%
+  shapiro_test(threshold)
+
+# descriptives
+descriptives <- threshFilt %>%
+  group_by(condition)%>%
+  summarise(
+    count = n(),
+    mean = mean(threshold, na.rm = TRUE),
+    sd = sd(threshold, na.rm = TRUE)
+  )%>%                   # round all columns to 2 dp
+  mutate_if(is.numeric,
+            round,
+            digits = 2)
+
+# significant effect of condiiton
+kruskal.test(threshold ~ condition, data = threshFilt)
+
+# BH chosen as this is the most powerful test
+pairwise.wilcox.test(threshFilt$threshold, threshFilt$condition,
+                 p.adjust.method = "BH", paired = T)
+
+
+combDf <- merge(threshFilt, chart, by = c("ppid", "condition"))%>%
+  filter(Participant.Private.ID != 8113028)
+#sig effect of condition
+kruskal.test(va ~ condition, data = combDf)
+pairwise.wilcox.test(combDf$va, combDf$condition,
+                 p.adjust.method = "BH", paired = T)
+ggplot(combDf, aes(x = threshold, y = va))+
+  geom_point()+
+  geom_smooth(method = "lm")
+
+cor(combDf)
+
+
+
+```
+
+```{r chart stats}
+
+
+chartDesc <- combDf %>%
+  group_by(condition)%>%
+  summarise(
+    count = n(),
+    mean = mean(va, na.rm = TRUE),
+    sd = sd(va, na.rm = TRUE)
+  )%>%                   # round all columns to 2 dp
+  mutate_if(is.numeric,
+            round,
+            digits = 2)
+
+combDf %>%
+  group_by(condition)%>%
+  shapiro_test(va)
+
+#  normally distributed, anova
+
+# p < .001
+res.aov <- anova_test(data = combDf, dv = va, wid = ppid, within = condition)
+get_anova_table(res.aov)
+
+# pairwise comparisons
+pwcPaired <- combDf %>%
+  pairwise_t_test(
+    va ~ condition, paired = TRUE,
+    p.adjust.method = "BH"
+    )
+pwcPaired
+```
+

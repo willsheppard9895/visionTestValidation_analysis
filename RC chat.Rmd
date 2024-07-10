@@ -1,0 +1,488 @@
+---
+title: "RC chat"
+author: "Will Sheppard"
+date: "2023-11-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+The aim of the present document is to try and illustrate my thoughts on the second study of the vision test validation paper. A high-level summary of my thoughts is that the data seem too heterogeneous in relation to all other data that I have collected with these tests to date to be considered truly representative. Take CS for example, in experiment 1 of the vision test validation paper, the mean CS score in the no blur condition was 1.77, in the heading perception paper (Tindall) the mean CS score in the no blur condition was 1.76, in the present study the mean CS score in the no blur condition is 1.41.
+
+I suspect that this is due to some sort of contrast deficit in the driving lab monitor. As far as I see the situation, we now need to decide between two options:
+1. We accept that this experiment was never explicitly designed to validate these vision tests and that we were shoehorning it in and, therefore, we simply exclude it.
+2. We do some statistical jiggery-pokery and make the argument that even under sub-optimal conditions these tests can still demonstrate differences in vision with a sample.
+
+Below, I will do my best to demonstrate the best fit that I can achieve in the raw data as well as the best fit that I can get overall by converting the participant's scores to z-scores grouped by test type (clinical v online) i.e. we are comparing the distribution of the participants scores across visual condition, within each test.
+
+Analytically, I will aim to model the data on the following fixed and random factors:
+fixed factors: test type (clinical v online), visual condition (binocular blur v reduced blur [collapsed across no blur and monocular blur] and no blur v monocular blur), test type*visual condition interaction
+random intercepts: participant ID (to account for variation between participants), test type (to account for the performance offset between the clinical and online tests), session number ([1, 2, 3] to account for learning)
+
+I will begin with a full model and then remove random factors that are "singular" that is to say there is no variance in the intercepts that it generates, this is the equivalent to a non-significant fixed effects. I will leave non-significant fixed effects in the model for two reasons:
+1. removing fixed main effects removes the contrasts from the interaction effects
+2. it is helpful to see the lack of effect. 
+
+The key terms of the model to look at to interpret whether the visual condition is having a similar effect on vision across the test types is the test type*visual condition interaction. For example, the presence of a significant interaction effect between test type for the monocular blur v no blur contrast could suggest that there is a difference between the two visual conditions using the clinical measure but not the online measure. Therefore, we will hopefully find non-significant interaction effects to indicate that the clinical and online tests are affected similarly by the visual condition.
+
+
+
+Tidyverse allows us to manipulate data and the other packages allow us to produce neat model summary tables. 
+```{r packages, echo=TRUE, warning=FALSE}
+library(tidyverse)
+require(modelsummary)
+require(tibble)
+require(flextable)
+
+```
+Import the visual test data
+```{r read data}
+
+csImport <- read.csv("../dataExp2/csThresh.csv") 
+vaImport <- read.csv("../dataExp2/vaThresh.csv")
+chart <- read.csv("../dataExp2/chartTest.csv")
+```
+
+
+Here, we merge the online and clinical CS data. Then we calculate the participants logCS score from their contrast detection threshold using the formula: online = 2 + log10(1/threshold)
+
+We then pivot the table so the test type is moved from a column name to a variable.
+
+The scale funtion creates z scores grouped by test type assigned to the variable cs.s. 3 is added to these values to make them all positive, this allows them to be modelled using non-normal distributions that can only fit positive values.
+
+I have left these values unrounded (if that is a word) as they are the derivative of 2 numbers and have the possibility to be any value. Whereas, i have rounded the CS values as we are comparing them with values that are rounded to 2dp, therefore, it makes sense to limit these values to the same level of precision.
+```{r manipulate cs DFs}
+cs <- na.omit(csImport)
+
+csMerge <- left_join(cs, chart, by = c("ppid", "condition")) %>%
+  filter(threshold > 0)
+csEst <- csMerge %>%
+  mutate(online = 2 + log10(1/threshold))
+
+csLmDf <- csEst %>%
+  select(ppid, condition, session, online, cs)%>%
+  rename(chart = cs) 
+csLmDf <- csLmDf %>%
+  pivot_longer(cols = c(online, chart),
+               names_to = "test",
+               values_to = "cs")
+
+csLmDf <- csLmDf %>%
+  group_by(test) %>%
+  mutate(cs.s = scale(cs)+3)
+
+csLmDf$cs <- round(csLmDf$cs, digits = 2)
+
+csLmDf$condition <- as.factor(csLmDf$condition)
+csLmDf$session <- as.factor(csLmDf$session)
+
+show(head(csLmDf))
+
+
+```
+The same merging and lengthening process is then followed with the VA data. 
+
+The raw VA values will have 1 added to them and the scaled Va values will have 2 added to them to make all of the values positive for modelling purposes. 
+
+These simple translations will only effect the intercept of the model and not the fixed effects that we are interested in.
+
+```{r manipulate va DFs}
+
+# this participants chart score was entered twice
+va <- vaImport %>%
+  filter(threshold <= 1.1)
+vaMerge <- left_join(va, chart, by = c("ppid", "condition"))%>%
+  filter(Participant.Private.ID != 8113028)
+
+
+vaLmDf <- vaMerge %>%
+  rename(online = threshold) %>%
+  select(ppid, condition, session, online, va)%>%
+  rename(chart = va)
+
+vaLmDf <- vaLmDf %>%
+  pivot_longer(cols = c(online, chart),
+               names_to = "test",
+               values_to = "va")
+
+vaLmDf$va.t <- vaLmDf$va+1
+
+vaLmDf <- vaLmDf %>%
+  group_by(test)%>%
+  mutate(va.s = scale(va)+2)
+
+show(head(vaLmDf))
+
+```
+
+Now, the fun begins.
+
+lets plot the raw and scaled CS data. At first glance,  the scaled data seems much more similar across the two tests than the raw data. How about once it's modelled?
+```{r cs plots}
+
+rawCSplot <- ggplot(csLmDf, aes(y = cs, x = condition, group = condition, color = condition))+
+  geom_jitter(size = 1.5, alpha = 1)+
+  facet_grid(~test)+
+  ggtitle("Raw logCS thresholds across three visual conditions")+
+  ylab("logCS")+
+  stat_summary(
+    geom = "point",
+    fun.y = "mean",
+    col = "black",
+    size = 3,
+    shape = 24,
+    fill = "red"
+  )
+
+
+scaledCSplot <- ggplot(csLmDf, aes(y = cs.s, x = condition, group = condition, color = condition))+
+  geom_jitter(size = 2, alpha = 1)+
+  facet_grid(~test)+
+  ggtitle("Scaled logCS thresholds across three visual conditions")+
+  ylab("Scaled logCS (z-score grouped by test type)")+
+  stat_summary(
+    geom = "point",
+    fun.y = "mean",
+    col = "black",
+    size = 3,
+    shape = 24,
+    fill = "red"
+  )
+
+show(rawCSplot)
+show(scaledCSplot)
+```
+Load the packages needed for model fitting. I have only loaded these now and they suppress some of the functions in tidyverse and make data manipulation more complicated.
+```{r MLM packages}
+
+require(lme4)
+require(lmerTest)
+```
+
+Here we set up the CS model
+first we set up the contrasts across the levels of visual condition to produce the contrasts stated above:
+1. binocular blur v less blur (collapsed across monocular blur and no blur)
+2. monocualr blur v no blur
+
+The reason for setting up contrasts is to reduce the number of tests that are needed to make comparisons between all of the groups. Each time we make a comparison we split the variance in the model, SSm. The more times we split the variance, the less likely we are to find an effect if there is one i.e. the chances of type 2 error increases.
+
+For the purposes of my PhD, we are particularly interested in whether the online tests can differentiate between no blur and monocular blur, so it seems wise to leave as much of the variance available for this comparison as possible. 
+
+I have not included the model comparisons in this document (they're pretty tedious), however, the normal distribution fitted both the raw and scaled CS scores the best. The normal distribution can handle negative values so I will remove the 3 that i addded to the scaled CS values. 
+
+```{r raw csMLM all, eval=FALSE, echo=FALSE}
+
+csLmDf$condition <- as.factor(csLmDf$condition)
+
+levels(csLmDf$condition)
+
+bino_vs_lessDeg <- c( 1/3, 1/3, -2/3)
+full_vs_mono <- c(1/2, -1/2, 0)
+
+contrasts(csLmDf$condition) <- cbind(bino_vs_lessDeg, full_vs_mono)
+
+csLm <- lmer(cs ~ condition + test + condition:test + (1|test),
+     data = csLmDf, 
+         control = lmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+
+summary(csLm)
+
+csIG <- glmer(cs ~ condition + test + condition:test + (1|ppid) + (1|session),
+     data = csLmDf, 
+     family = inverse.gaussian(link = "identity"), 
+         control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+summary(csIG)
+
+csGamma <- glmer(cs ~ condition + test + condition:test + (1|ppid) + (1|test) + (1|session),
+     data = csLmDf, 
+     family = Gamma(link = "identity"), 
+         control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+summary(csGamma)
+# linear model is the best fit, lowest BIC
+anova(csLm, csIG, csGamma)
+
+
+csLm.s <- lmer(cs.s ~ condition + test + condition:test + (1|session),
+     data = csLmDf, 
+         control = lmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+summary(csLm.s)
+
+csIG.s <- glmer(cs.s ~ condition + test + condition:test + (1|ppid) + (1|session),
+     data = csLmDf, 
+     family = inverse.gaussian(link = "identity"), 
+         control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+summary(csIG.s)
+
+csGamma.s <- glmer(cs.s ~ condition + test + condition:test + (1|ppid) + (1|session),
+     data = csLmDf, 
+     family = Gamma(link = "identity"), 
+         control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+summary(csGamma.s)
+
+# linear model is the best fit
+anova(csLm.s, csIG.s, csGamma.s)
+```
+When dealing with the raw CS data, you can see below that there are significant main effects of visual condition and test type as well as a significant interaction between visual conditon and the less degraded v binocular blur comparison. This indicates that the the difference between these visual conditions is significantly larger for the online test than it is for the clinical test. This is not the case for the scaled CS scores where there is no significant interaction effects suggesting that the distribution of these values is similar across the visual conditions when comparing the two tests. This plays out in the graphs below.
+
+```{r csMLM, echo=TRUE}
+
+csLmDf$condition <- as.factor(csLmDf$condition)
+
+levels(csLmDf$condition)
+
+bino_vs_lessDeg <- c( 1/3, 1/3, -2/3)
+full_vs_mono <- c(1/2, -1/2, 0)
+
+contrasts(csLmDf$condition) <- cbind(bino_vs_lessDeg, full_vs_mono)
+
+csLm <- lmer(cs ~ condition + test + condition:test + (1|test),
+     data = csLmDf, 
+         control = lmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+
+
+#csLmDf$cs.s <- csLmDf$cs.s-3
+
+csLm.s <- lmer(cs.s ~ condition + test + condition:test + (1|session),
+     data = csLmDf, 
+         control = lmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+
+
+csModComp <- modelsummary(list("Raw" = csLm, "Scaled" = csLm.s), 
+             stars = T, 
+             title = "CS MLM output - Raw data (logMAR) vs scaled data (z-score",
+             estimate = "{estimate}{stars} \n[{conf.low}, {conf.high}]",
+             shape = term ~ model, #statistics in separate columns",
+             fmt = 2
+             )
+
+csModComp
+
+```
+
+```{r cs conversion}
+csChart <- csLmDf %>%
+  filter(test == "chart")
+
+meanCS <- mean(csChart$cs)
+sdCS <- sd(csChart$cs)
+
+intercept <- round(meanCS - 0.08*sdCS, digits = 2)
+binovlessDeg <- round(1.61*sdCS, digits = 2)
+monovfull <- round(0.72*sdCS, digits = 2)
+
+
+```
+```{r cs plot, echo=FALSE}
+
+csPlotData <- csLmDf %>%
+  mutate(fullBlur = case_when(
+    condition == "2" ~ "binoBlur",
+    TRUE ~ "reducedBlur"
+  ))
+
+csGroupedPlot <- ggplot(csPlotData, aes(y = cs, x = fullBlur, group = fullBlur, color = fullBlur))+
+  geom_jitter(size = 2, alpha = 1)+
+  facet_grid(~test)+
+  ggtitle("Raw logCS thresholds across three visual conditions")+
+  ylab("Scaled logCS (z-score grouped by test type)")+
+  stat_summary(
+    geom = "point",
+    fun.y = "mean",
+    col = "black",
+    size = 3,
+    shape = 24,
+    fill = "red"
+  )
+
+csGroupedPlot.s <- ggplot(csPlotData, aes(y = cs.s, x = fullBlur, group = fullBlur, color = fullBlur))+
+  geom_jitter(size = 2, alpha = 1)+
+  facet_grid(~test)+
+  ggtitle("Scaled logCS thresholds across three visual conditions")+
+  ylab("Scaled logCS (z-score grouped by test type)")+
+  stat_summary(
+    geom = "point",
+    fun.y = "mean",
+    col = "black",
+    size = 3,
+    shape = 24,
+    fill = "red"
+  )
+show(csGroupedPlot)
+show(csGroupedPlot.s)
+```
+Let's look at the raw and scaled VA data.
+
+lets plot the raw and scaled CS data. At first glance, the scaled and raw data look far more similar than in the case of CS. Lets see how this plays our in the models
+```{r va plots}
+
+vaLmDf$condition <- as.factor(vaLmDf$condition)
+
+rawVAplot <- ggplot(vaLmDf, aes(y = va, x = condition, group = condition, color = condition))+
+  geom_jitter(size = 1.5, alpha = 1)+
+  facet_grid(~test)+
+  ggtitle("Raw VA thresholds across three visual conditions")+
+  ylab("VA (logAR)")+
+  stat_summary(
+    geom = "point",
+    fun.y = "mean",
+    col = "black",
+    size = 3,
+    shape = 24,
+    fill = "red"
+  )
+
+
+scaledVAplot <- ggplot(vaLmDf, aes(y = va.s, x = condition, group = condition, color = condition))+
+  geom_jitter(size = 2, alpha = 1)+
+  facet_grid(~test)+
+  ggtitle("Scaled VA thresholds across three visual conditions")+
+  ylab("Scaled VA (z-score grouped by test type)")+
+  stat_summary(
+    geom = "point",
+    fun.y = "mean",
+    col = "black",
+    size = 3,
+    shape = 24,
+    fill = "red"
+  )
+
+show(rawVAplot)
+show(scaledVAplot)
+```
+```{r raw vaMLM all, eval = FALSE, echo=FALSE}
+
+
+#levels(vaLmDf$condition)
+
+bino_vs_lessDeg <- c( 1/3, 1/3, -2/3)
+full_vs_mono <- c(-1/2, 1/2, 0)
+
+contrasts(vaLmDf$condition) <- cbind(bino_vs_lessDeg, full_vs_mono)
+
+vaLm <- lmer(va.t ~ condition + test + condition:test + (1|ppid),
+     data = vaLmDf, 
+         control = lmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+
+summary(vaLm)
+
+vaIG <- glmer(va.t ~ condition + test + condition:test + (1|ppid) + (1|session),
+     data = vaLmDf, 
+     family = inverse.gaussian(link = "identity"), 
+         control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+summary(vaIG)
+
+vaGamma <- glmer(va.t ~ condition + test + condition:test + (1|ppid)+ (1|session),
+     data = vaLmDf, 
+     family = Gamma(link = "identity"), 
+         control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+summary(vaGamma)
+# Inverse Gamma is the best fit, lowest BIC
+anova(vaLm, vaIG, vaGamma)
+
+
+vaLm.s <- lmer(va.s ~ condition + test + condition:test + (1|ppid),
+     data = vaLmDf, 
+         control = lmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+summary(vaLm.s)
+
+vaIG.s <- glmer(va.s ~ condition + test + condition:test + (1|ppid)+ (1|session),
+     data = vaLmDf, 
+     family = inverse.gaussian(link = "identity"), 
+         control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+summary(vaIG.s)
+
+vaGamma.s <- glmer(va.s ~ condition + test + condition:test + (1|ppid) + (1|session),
+     data = vaLmDf, 
+     family = Gamma(link = "identity"), 
+         control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+summary(vaGamma.s)
+
+# Gamma model is the best fit, lowest BIC
+anova(vaLm.s, vaIG.s, vaGamma.s)
+```
+As with the CS data, when we scale the VA data we remove the effect of test, this is not surprising as we are calculating the the z-scores within the test type, and we get rid of the interaction effect. In the raw data, the difference between the visual conditions was smaller between the visual conditions when testing online - this could be due to the filters having a greater effect at distance or because the screen was backlit whereas the chart wasn't. The main effect of visual condition is the same between the raw and scaled data. 
+
+```{r va MLM}
+
+#levels(vaLmDf$condition)
+
+bino_vs_lessDeg <- c( 1/3, 1/3, -2/3)
+full_vs_mono <- c(1/2, -1/2, 0)
+
+contrasts(vaLmDf$condition) <- cbind(bino_vs_lessDeg, full_vs_mono)
+
+vaIG <- glmer(va.t ~ condition + test + condition:test + (1|ppid) + (1|session),
+     data = vaLmDf, 
+     family = inverse.gaussian(link = "identity"), 
+         control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+
+vaGamma.s <- glmer(va.s ~ condition + test + condition:test + (1|ppid) + (1|session),
+     data = vaLmDf, 
+     family = Gamma(link = "identity"), 
+         control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+
+vaModComp <- modelsummary(list("Raw" = vaIG, "Scaled" = vaGamma.s), 
+             stars = T, 
+             title = "VA MLM output - Raw data (logMAR) vs scaled data (z-score",
+             estimate = "{estimate}{stars} [{conf.low}, {conf.high}]",
+             shape = term ~ model, #statistics in separate columns"
+             fmt = 2
+             )
+
+vaModComp
+```
+
+```{r va interaction plot, echo=FALSE}
+
+vaPlotData <- vaLmDf %>%
+  mutate(fullBlur = case_when(
+    condition == "2" ~ "binoBlur",
+    TRUE ~ "reducedBlur"
+  ))
+
+vaGroupedPlot <- ggplot(vaPlotData, aes(y = va, x = fullBlur, group = fullBlur, color = fullBlur))+
+  geom_jitter(size = 2, alpha = 1)+
+  facet_grid(~test)+
+  ggtitle("Raw VA thresholds across three visual conditions")+
+  ylab("VA (logMAR)")+
+  stat_summary(
+    geom = "point",
+    fun.y = "mean",
+    col = "black",
+    size = 3,
+    shape = 24,
+    fill = "red"
+  )
+
+vaGroupedPlot.s <- ggplot(vaPlotData, aes(y = va.s, x = fullBlur, group = fullBlur, color = fullBlur))+
+  geom_jitter(size = 2, alpha = 1)+
+  facet_grid(~test)+
+  ggtitle("Scaled VA thresholds across three visual conditions")+
+  ylab("Scaled VA (z-score grouped by test type)")+
+  stat_summary(
+    geom = "point",
+    fun.y = "mean",
+    col = "black",
+    size = 3,
+    shape = 24,
+    fill = "red"
+  )
+show(vaGroupedPlot)
+show(vaGroupedPlot.s)
+```
+
+```{r va paper}
+vaChart <- vaLmDf %>%
+  filter(test == "chart")
+
+meanVA <- mean(vaChart$va)
+sdVA <- sd(vaChart$va)
+
+interceptVA <- round(meanVA - 0.03*sdVA, digits = 2)
+binovlessDegVA <- round(-1.55*sdVA, digits = 2)
+monovfull <- round(0.72*sdCS, digits = 2)
+
+
+```

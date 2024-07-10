@@ -1,0 +1,55 @@
+---
+title: "blandAltman"
+output: html_document
+date: "2022-09-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+
+```{r load packages}
+library(blandr)
+library(ggplot2)
+library(psych)
+```
+
+## read data
+i have simmed 100 particiapnts from the 4 pilot data sets
+```{r read data, echo=FALSE}
+df <- read.csv("../data/thresholdDF.csv")
+```
+# correlation
+are the tests related?
+```{r corr}
+corrdf <- df%>%
+  select(-X, -id, -ends_with('RT', ignore.case = F))
+
+psych::corr.test(x = corrdf, adjust = 'fdr')
+```
+
+```{r bland stats}
+p = 0.95
+
+csCL <- blandr.statistics(df$csChart, df$csLab, sig.level = p)
+csCO <- blandr.statistics(df$csChart, df$csOnline, sig.level = p)
+csLO <- blandr.statistics(df$csLab, df$csOnline, sig.level = p)
+
+vaCL <- blandr.statistics(df$vaChart, df$vaLab, sig.level = p)
+vaCO <- blandr.statistics(df$vaChart, df$vaOnline, sig.level = p)
+vaLO <- blandr.statistics(df$vaLab, df$vaOnline, sig.level = p)
+```
+
+# draw BA plots
+```{r BA plots}
+blandr.draw(df$csChart, df$csLab)
+blandr.draw(df$csChart, df$csOnline)
+blandr.draw(df$csLab, df$csOnline)
+
+blandr.draw(df$vaChart, df$vaLab)
+blandr.draw(df$vaChart, df$vaOnline)
+blandr.draw(df$vaLab, df$vaOnline)
+```

@@ -1,0 +1,507 @@
+---
+title: "vaPsychoFunction"
+author: "Will Sheppard"
+date: "2023-08-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(quickpsy)
+```
+
+read data 
+```{r read data}
+data <- read.csv("../data/vaSummLab.csv")%>%
+  select(-X, -meanResponseTime)
+onlineData <- read.csv("../data/vaSummOnline.csv")%>%
+  select(-X, -meanResponseTime)
+```
+
+psychometric fucnitons fit more consistantly is the full parameter space is full
+i.e. paticipants need a percCorrect value for all logMAR values from 1.0 to -0.2
+all participants start at 1.0, so the top end is not the issue
+therefore, we need to create a row for each unsampled level for each participant
+these will need a percCorrect of 0, therefore, 1 attempt and 0 correct
+participants 3 and 4 online are good examples
+```{r fill parameter online space}
+
+pplist <- unique(onlineData$id)
+xMIN <- -0.2
+onlineAllLevels <- data.frame(matrix(
+  data = NA,
+  ncol = ncol(onlineData),
+  nrow =  0
+))
+
+for (pp in pplist) {
+  d <- onlineData %>%
+    filter(id == pp)
+  pp <- first(d$id)
+  minLogMAR <- min(d$logMAR)
+  
+  #print(pp)
+  #print(minLogMAR)
+  
+  if(minLogMAR < (xMIN+0.1)){
+    #print(paste("pp:", pp,": none missing", sep = ""))
+    onlineAllLevels <- rbind(onlineAllLevels, d)
+  }else{
+    
+    #print(paste("pp:", pp,": levels missing", sep = ""))
+    missingLevels <- seq(xMIN, min(d$logMAR)-0.1, 0.1)
+    #print(paste("missing:", missingLevels, sep = ""))
+    
+    newDF <- data.frame(matrix(
+      data = NA,
+      nrow = length(missingLevels),
+      ncol = ncol(d)
+      ))
+    
+    colnames(newDF) <- colnames(d)
+    newDF$id <- first(d$id)
+    newDF$logMAR <- missingLevels
+    newDF$totalAttempt <- 1
+    newDF$totalCorrect <- 0
+    newDF$percCorrect <- 0
+    
+    newDF <- rbind(newDF, d)
+    
+    #print(newDF)
+    onlineAllLevels <- rbind(onlineAllLevels, newDF)
+    
+    
+  }
+  
+
+  
+}
+
+
+
+```
+
+
+lets redo the modelling
+```{r generic modelling}
+
+cols <- c("id",
+          "va", "vaLower", "vaUpper",
+          "percCorrect","fun", "guessRate",
+          "setting")
+
+
+
+funList <- c("logistic_fun", "cum_normal_fun", "weibull_fun")
+#funList <- c("weibull_fun")
+
+denomList <- c(10, 26)
+
+settingList <- c("Lab", "Online")
+
+for (setting in settingList) {
+  if (setting == "Lab"){
+        settingData <- data
+        
+      }else{
+        settingData <- onlineAllLevels
+      }
+      
+      pplist <- unique(settingData$id)
+      #pplist <- 1:10
+      
+      thresh <- data.frame(matrix(
+      data = NA,
+      nrow = length(pplist),
+      ncol = 8))
+      
+      colnames(thresh) <- cols
+      
+      for (fun in funList) {
+        for (denom in denomList) {
+          for (pp in pplist) {
+            
+            d <- settingData %>%
+              filter(id == pp)
+            
+            g <- 1/denom
+            p <- g + .5 * (1 - g)
+            
+            xMIN <- min(d$logMAR)
+            xMAX <- max(d$logMAR)+0.1
+            
+            minPercCorr = min(d$percCorrect)
+            minLogMAR = min(d$logMAR)
+            
+            print(paste("Participant:", pp, " ", setting, "", ", ", fun, "", ", Guess rate: 1/", denom, sep = ""))
+            
+            if (minPercCorr < p) {
+              if (fun == "logistic_fun"){
+                fitOne <- quickpsy(d = d, x = logMAR, k = totalCorrect, n = totalAttempt,
+                               guess = g, lapses = TRUE, bootstrap = 'nonparametric',
+                               xmin = xMIN, xmax = xMAX, fun = logistic_fun)
+              }else if (fun == "cum_normal_fun"){
+                fitOne <- quickpsy(d = d, x = logMAR, k = totalCorrect, n = totalAttempt,
+                               guess = g, lapses = TRUE, bootstrap = 'nonparametric',
+                               xmin = xMIN, xmax = xMAX, fun = cum_normal_fun)
+              }else if (fun == "weibull_fun"){
+                
+                d$logMAR <- d$logMAR+0.2
+                
+                xMIN <- min(d$logMAR)
+                xMAX <- max(d$logMAR)+0.1
+                
+                fitOne <- quickpsy(d = d, x = logMAR, k = totalCorrect, n = totalAttempt,
+                               guess = g, lapses = TRUE, bootstrap = 'nonparametric',
+                               xmin = xMIN, xmax = xMAX, fun = weibull_fun)
+              }
+              
+              x <- plotcurves(fitOne)+
+              scale_x_continuous(limits = c(xMIN, xMAX), breaks = seq(-0.2, xMAX, 0.1))+
+              scale_y_continuous(limits = c(0,1), breaks = seq(0, 1, 0.1))+
+              ggtitle(paste("pp: ", pp, " - ", setting, ", ", fun, "guess rate 1/", denom))
+              show(x)
+            
+              thresh[which(pplist == pp), 1] <- pp
+              thresh[which(pplist == pp), 2] <- round(fitOne$thresholds[1], digits = 2)
+              thresh[which(pplist == pp), 3] <- round(fitOne$thresholds[3], digits = 2)
+              thresh[which(pplist == pp), 4] <- round(fitOne$thresholds[4], digits = 2)
+              thresh[which(pplist == pp), 5] <- fitOne$thresholds[2]
+              thresh[which(pplist == pp), 6] <- fun
+              thresh[which(pplist == pp), 7] <- 1/denom
+              thresh[which(pplist == pp), 8] <- setting
+            
+            } else{
+              if(fun == "weibull_fun"){
+                thresh[which(pplist == pp), 1] <- pp
+                thresh[which(pplist == pp), 2] <- xMIN+0.2
+                thresh[which(pplist == pp), 3] <- xMIN+0.2
+                thresh[which(pplist == pp), 4] <- xMIN+0.2
+                thresh[which(pplist == pp), 5] <- p
+                thresh[which(pplist == pp), 6] <- fun
+                thresh[which(pplist == pp), 7] <- 1/denom
+                thresh[which(pplist == pp), 8] <- setting
+              }else{
+                thresh[which(pplist == pp), 1] <- pp
+                thresh[which(pplist == pp), 2] <- xMIN
+                thresh[which(pplist == pp), 3] <- xMIN
+                thresh[which(pplist == pp), 4] <- xMIN
+                thresh[which(pplist == pp), 5] <- p
+                thresh[which(pplist == pp), 6] <- fun
+                thresh[which(pplist == pp), 7] <- 1/denom
+                thresh[which(pplist == pp), 8] <- setting
+              }
+              
+                
+            }
+              
+            
+            
+          }
+          assign(paste(fun, denom, "va", setting, sep = ""), thresh)
+        }
+      }
+  
+}
+```
+
+```{r quick plots}
+
+#put all data frames into list
+df_list <- list(cum_normal_fun10vaLab, cum_normal_fun10vaOnline, cum_normal_fun26vaLab, cum_normal_fun26vaOnline,
+                logistic_fun10vaLab, logistic_fun10vaOnline, logistic_fun26vaLab, logistic_fun26vaOnline,
+                weibull_fun10vaLab, weibull_fun10vaOnline, weibull_fun26vaLab, weibull_fun26vaOnline)
+
+
+#merge all data frames in list
+modelledData <- df_list %>% 
+  reduce(full_join)
+
+modelledData <- modelledData %>%
+  mutate(va = case_when(
+    fun == "weibull_fun" ~ va - 0.2,
+    TRUE ~ va
+  ))%>%
+  mutate(vaLower = case_when(
+    fun == "weibull_fun" ~ vaLower - 0.2,
+    TRUE ~ vaLower
+  ))%>%
+  mutate(vaUpper = case_when(
+    fun == "weibull_fun" ~ vaUpper - 0.2,
+    TRUE ~ vaUpper
+  ))
+
+wideData <- modelledData %>%
+  pivot_wider(id_cols = c(id, fun, guessRate), 
+              values_from = va,
+              names_from = setting)
+```
+
+```{r save}
+
+chartdata <- read.csv('../data/visualTestData.csv')%>%
+  select(-csChart)
+df <- merge(wideData, chartdata, by = "id") 
+
+
+filePath <- paste("../data/vaThreshModelled.csv", sep = "")
+
+write.csv(df, filePath)
+#write.csv(cs, "../data/csThreshModelled10.csv")
+```
+
+
+
+there are no mising levels in the lab data, but it is worth having this here for future analysis
+
+```{r fill parameter lab space}
+
+pplist <- unique(data$id)
+
+labAllLevels <- data.frame(matrix(
+  data = NA,
+  ncol = ncol(data),
+  nrow =  0
+))
+
+for (pp in pplist) {
+  d <- data %>%
+    filter(id == pp)
+  pp <- first(d$id)
+  minLogMAR <- min(d$logMAR)
+  
+  #print(pp)
+  #print(minLogMAR)
+  
+  if(minLogMAR < (xMIN+0.1)){
+    #print(paste("pp:", pp,": none missing", sep = ""))
+    labAllLevels <- rbind(labAllLevels, d)
+  }else{
+    
+    #print(paste("pp:", pp,": levels missing", sep = ""))
+    missingLevels <- seq(xMIN, min(d$logMAR)-0.1, 0.1)
+    #print(paste("missing:", missingLevels, sep = ""))
+    
+    newDF <- data.frame(matrix(
+      data = NA,
+      nrow = length(missingLevels),
+      ncol = ncol(d)
+      ))
+    
+    colnames(newDF) <- colnames(d)
+    newDF$id <- first(d$id)
+    newDF$logMAR <- missingLevels
+    newDF$totalAttempt <- 1
+    newDF$totalCorrect <- 0
+    newDF$percCorrect <- 0
+    
+    newDF <- rbind(newDF, d)
+    
+    #print(newDF)
+    labAllLevels <- rbind(labAllLevels, newDF)
+    
+    
+  }
+  
+
+  
+}
+
+
+
+```
+
+```{r min va}
+
+minPossVa <- onlineAllLevels %>%
+  group_by(id) %>%
+  dplyr::summarise(minPossVa = )
+```
+
+
+```{r lab first fit}
+pplist <- unique(data$id)
+#pplist <- 33
+thresh <- data.frame(matrix(
+  data = NA,
+  nrow = length(pplist),
+  ncol = 5))
+  
+cols <- c("id",
+            "threshold", "percCorrect",
+            "threshLower", "threshUpper")
+
+colnames(thresh) <- cols
+
+rm(cols)
+
+#p = 0.5
+
+for (pp in  pplist){
+  d <- data %>%
+    filter(id == pp)
+
+  minPercCorr = min(d$percCorrect)
+  minLogMAR = min(d$logMAR)
+  
+  print(pp)
+  print(minLogMAR)
+  print(minPercCorr)
+  
+  if (minPercCorr < p) {
+    fitOne <- quickpsy(d = d, x = logMAR, k = totalCorrect, n = totalAttempt,
+                     guess = guess, lapses = TRUE, bootstrap = 'nonparametric',
+                     xmin = xMIN, xmax = xMAX)
+  x <- plotcurves(fitOne)+
+    scale_x_continuous(limits = c(xMIN, xMAX), breaks = seq(xMIN, xMAX, 0.1))+
+    scale_y_continuous(limits = c(0,1), breaks = seq(0, 1, 0.1))+
+    ggtitle(pp)
+  show(x)
+  
+  thresh[which(pplist == pp), 1] <- pp
+  thresh[which(pplist == pp), 2] <- fitOne$thresholds[1]
+  thresh[which(pplist == pp), 3] <- fitOne$thresholds[2]
+  thresh[which(pplist == pp), 4] <- fitOne$thresholds[3]
+  thresh[which(pplist == pp), 5] <- fitOne$thresholds[4]
+    
+  } else{
+    thresh[which(pplist == pp), 1] <- pp
+    thresh[which(pplist == pp), 2] <- minLogMAR
+    thresh[which(pplist == pp), 3] <- minPercCorr
+    thresh[which(pplist == pp), 4] <- minLogMAR
+    thresh[which(pplist == pp), 5] <- minLogMAR
+  }
+  
+
+}
+
+labThresh <- thresh
+```
+
+
+```{r online first fit}
+pplist <- unique(onlineData$id)
+#pplist <- 3
+
+thresh <- data.frame(matrix(
+  data = NA,
+  nrow = length(pplist),
+  ncol = 5))
+  
+cols <- c("id",
+            "threshold", "percCorrect",
+            "threshLower", "threshUpper")
+
+colnames(thresh) <- cols
+
+rm(cols)
+
+#p = 0.5
+
+
+for (pp in  pplist){
+  d <- onlineAllLevels %>%
+    filter(id == pp)
+  
+  #d <- tail %>%
+  #  filter(id == pp)
+  
+  #dataInd <- which(d)
+  
+  minPercCorr = min(d$percCorrect)
+  minLogMAR = min(d$logMAR)
+  
+  print(pp)
+  print(minLogMAR)
+  print(minPercCorr)
+  
+  if (minPercCorr < p) {
+    fitOne <- quickpsy(d = d, x = logMAR, k = totalCorrect, n = totalAttempt,
+                     guess = guess, lapses = TRUE, bootstrap = 'nonparametric',
+                     xmin = xMIN, xmax = xMAX)
+  x <- plotcurves(fitOne)+
+    scale_x_continuous(limits = c(xMIN, xMAX), breaks = seq(xMIN, xMAX, 0.1))+
+    scale_y_continuous(limits = c(0,1), breaks = seq(0, 1, 0.1))+
+    ggtitle(pp)
+  show(x)
+  
+  thresh[which(pplist == pp), 1] <- pp
+  thresh[which(pplist == pp), 2] <- fitOne$thresholds[1]
+  thresh[which(pplist == pp), 3] <- fitOne$thresholds[2]
+  thresh[which(pplist == pp), 4] <- fitOne$thresholds[3]
+  thresh[which(pplist == pp), 5] <- fitOne$thresholds[4]
+    
+  } else{
+    thresh[which(pplist == pp), 1] <- pp
+    thresh[which(pplist == pp), 2] <- minLogMAR
+    thresh[which(pplist == pp), 3] <- minPercCorr
+    thresh[which(pplist == pp), 4] <- minLogMAR
+    thresh[which(pplist == pp), 5] <- minLogMAR
+  }
+  
+
+}
+
+onlineThresh <- thresh
+```
+
+```{r import chart data and merge}
+chartdata <- read.csv('../data/visualTestData.csv')
+
+lab <- labThresh %>%
+  select(id, threshold) %>%
+  rename(vaLab = threshold)
+
+lab <- lab  %>%
+    mutate(twoDP = as.numeric(str_sub(abs(vaLab), 4, 4)))%>% 
+  replace(is.na(.), 0)%>%
+    mutate(x = case_when(
+      twoDP%%2 == 0 & vaLab >= 0 ~ plyr::round_any(vaLab, 0.02, f = floor),
+      twoDP%%2 == 0 & vaLab < 0~ plyr::round_any(vaLab, 0.02, f = ceiling),
+      twoDP%%2 == 1 & vaLab >= 0 ~ plyr::round_any(vaLab, 0.02, f = ceiling),
+      twoDP%%2 == 1 & vaLab < 0 ~ plyr::round_any(vaLab, 0.02, f = floor)
+    )) %>%
+    select(-vaLab, -twoDP) %>%
+  rename(vaLab = x)%>%
+  mutate(vaLab = case_when(
+    vaLab < -0.2 ~ -0.2,
+    TRUE ~ vaLab
+  ))
+
+online <- onlineThresh %>%
+  select(id, threshold) %>%
+  rename(vaOnline = threshold)
+
+online <- online %>%
+    mutate(twoDP = as.numeric(str_sub(abs(vaOnline), 4, 4)))%>% 
+  replace(is.na(.), 0)%>%
+    mutate(x = case_when(
+      twoDP%%2 == 0 & vaOnline >= 0 ~ plyr::round_any(vaOnline, 0.02, f = floor),
+      twoDP%%2 == 0 & vaOnline < 0~ plyr::round_any(vaOnline, 0.02, f = ceiling),
+      twoDP%%2 == 1 & vaOnline >= 0 ~ plyr::round_any(vaOnline, 0.02, f = ceiling),
+      twoDP%%2 == 1 & vaOnline < 0 ~ plyr::round_any(vaOnline, 0.02, f = floor)
+    )) %>%
+    select(-vaOnline, -twoDP) %>%
+  rename(vaOnline = x)%>%
+  mutate(vaOnline = case_when(
+    vaOnline < -0.2 ~ -0.2,
+    TRUE ~ vaOnline
+  ))
+   
+
+df <- merge(lab, chartdata, by = "id")
+df <- merge(df, online, by = "id") %>%
+  select(-csChart)
+
+```
+
+```{r save data}
+#write.csv(labThresh, "../data/vaLabThreshModelled.csv")
+#write.csv(onlineThresh, "../data/vaOnlineThreshModelled.csv")
+
+filePath <- paste("../data/vaThreshModelled", gDenom,".csv", sep = "")
+
+write.csv(df, filePath)
+```

@@ -1,0 +1,200 @@
+---
+title: "psychoFunciton"
+output: html_document
+date: "2022-11-10"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(quickpsy)
+```
+
+read data 
+```{r read data}
+data <- read.csv("../data/csSummLab.csv")
+onlineData <- read.csv("../data/csSummOnline.csv")
+```
+
+```{r lab first fit}
+
+xMIN = 1
+
+#thresh <- data.frame(matrix(
+#  data = NA,
+#  nrow = length(pplist),
+#  ncol = 11))
+  
+cols <- c("id",
+          "cs", "csLower", "csUpper",
+          "threshold", "threshLower", "threshUpper",
+          "percCorrect","fun", "guessRate",
+          "setting")
+
+
+
+funList <- c("logistic_fun", "cum_normal_fun", "weibull_fun")
+
+denomList <- c(10, 26)
+
+settingList <- c("Lab", "Online")
+
+### logistic_fun
+
+for (setting in settingList){
+  if (setting == "Lab"){
+        settingData <- data
+        
+      }else{
+        settingData <- onlineData
+      }
+      
+      pplist <- unique(settingData$id)
+      #pplist <- 1:10
+      
+      thresh <- data.frame(matrix(
+      data = NA,
+      nrow = length(pplist),
+      ncol = 11))
+      
+      colnames(thresh) <- cols
+
+      
+  for (fun in funList) {
+    for (denom in denomList) {
+      for (pp in  pplist){
+      
+          d <- settingData %>%
+            filter(id == pp)
+        
+          
+          
+          g = 1/denom
+          p <- g + .5 * (1 - g)
+          
+          xMAX <- max(d$contrast)
+          minPercCorr = min(d$percCorrect)
+          minContrast = min(d$contrast)
+          
+          print(paste("Participant:", pp, " ", setting, "", ", ", fun, "", ", Guess rate: 1/", denom, sep = ""))
+          
+          if (minPercCorr < p) {
+            if (fun == "logistic_fun"){
+              fitOne <- quickpsy(d = d, x = contrast, k = totalCorrect, n = totalAttempt,
+                             guess = g, lapses = TRUE, bootstrap = 'nonparametric',
+                             xmin = xMIN, xmax = xMAX, fun = logistic_fun)
+            }else if (fun == "cum_normal_fun"){
+              fitOne <- quickpsy(d = d, x = contrast, k = totalCorrect, n = totalAttempt,
+                             guess = g, lapses = TRUE, bootstrap = 'nonparametric',
+                             xmin = xMIN, xmax = xMAX, fun = cum_normal_fun)
+            }else if (fun == "weibull_fun"){
+              fitOne <- quickpsy(d = d, x = contrast, k = totalCorrect, n = totalAttempt,
+                             guess = g, lapses = TRUE, bootstrap = 'nonparametric',
+                             xmin = xMIN, xmax = xMAX, fun = weibull_fun)
+            }
+            
+            x <- plotcurves(fitOne)+
+            scale_x_continuous(limits = c(0, max(d$contrast)), breaks = seq(0, max(d$contrast), 1))+
+            scale_y_continuous(limits = c(0,1), breaks = seq(0, 1, 0.1))+
+            ggtitle(paste("pp: ", pp, " - ", fun, "guess rate 1/", denom))
+            show(x)
+          
+            thresh[which(pplist == pp), 1] <- pp
+            thresh[which(pplist == pp), 2] <- round(2 + log10(1/fitOne$thresholds[1]), digits = 2)
+            thresh[which(pplist == pp), 3] <- round(2 + log10(1/fitOne$thresholds[4]), digits = 2)
+            thresh[which(pplist == pp), 4] <- round(2 + log10(1/fitOne$thresholds[3]), digits = 2)
+            thresh[which(pplist == pp), 5] <- round(fitOne$thresholds[1], digits = 2)
+            thresh[which(pplist == pp), 6] <- round(fitOne$thresholds[3], digits = 2)
+            thresh[which(pplist == pp), 7] <- round(fitOne$thresholds[4], digits = 2)
+            thresh[which(pplist == pp), 8] <- fitOne$thresholds[2]
+            thresh[which(pplist == pp), 9] <- fun
+            thresh[which(pplist == pp), 10] <- 1/denom
+            thresh[which(pplist == pp), 11] <- setting
+            
+          } else{
+              thresh[which(pplist == pp), 1] <- pp
+              thresh[which(pplist == pp), 2] <- round(2 + log10(1/minContrast), digits = 2)
+              thresh[which(pplist == pp), 3] <- round(2 + log10(1/minContrast), digits = 2)
+              thresh[which(pplist == pp), 4] <- round(2 + log10(1/minContrast), digits = 2)
+              thresh[which(pplist == pp), 5] <- minContrast
+              thresh[which(pplist == pp), 6] <- minContrast
+              thresh[which(pplist == pp), 7] <- minContrast
+              thresh[which(pplist == pp), 8] <- p
+              thresh[which(pplist == pp), 9] <- fun
+              thresh[which(pplist == pp), 10] <- 1/denom
+              thresh[which(pplist == pp), 11] <- setting
+          }
+          
+        
+      }
+      assign(paste(fun, denom, "cs", setting, sep = ""), thresh)
+      }
+  
+}
+  
+}
+
+```
+
+```{r quick plots}
+
+#put all data frames into list
+df_list <- list(cum_normal_fun10csLab, cum_normal_fun10csOnline, cum_normal_fun26csLab, cum_normal_fun26csOnline,
+                logistic_fun10csLab, logistic_fun10csOnline, logistic_fun26csLab, logistic_fun26csOnline,
+                weibull_fun10csLab, weibull_fun10csOnline, weibull_fun26csLab, weibull_fun26csOnline)
+
+
+#merge all data frames in list
+modelledData <- df_list %>% 
+  reduce(full_join)%>%
+  filter(threshold > 0)
+
+modelledData <- modelledData 
+
+
+ggplot(modelledData, aes(x = as.factor(guessRate), group = as.factor(guessRate), y = cs))+
+  geom_boxplot()+
+  facet_grid(cols = vars(setting),
+             rows = vars(fun))
+
+wideData <- modelledData %>%
+  pivot_wider(id_cols = c(id, fun, guessRate), 
+              values_from = cs,
+              names_from = setting)
+
+ggplot(wideData, aes(x = Lab, y = Online))+
+  geom_point()+
+  geom_smooth(method = "lm")+
+  facet_grid(cols = vars(guessRate),
+             rows = vars(fun))
+
+
+```
+
+
+minimum threshood is 1% contrast
+```{r import chart data and merge, eval=FALSE}
+chartdata <- read.csv('../data/visualTestData.csv')%>%
+  select(-vaChart)
+df <- merge(wideData, chartdata, by = "id") 
+
+
+ppsAll <- unique(df$id)
+
+#write.csv(ppsAll, "../data/ppsAll.csv")
+
+df <- df %>%
+#  filter(id != 19 & id != 29 & id != 61 & id !=66)%>%
+  select(id, csChart, labThresh, onlineThresh)
+```
+
+
+
+```{r save}
+
+filePath <- paste("../data/csThreshModelled.csv", sep = "")
+
+write.csv(df, filePath)
+#write.csv(cs, "../data/csThreshModelled10.csv")
+```

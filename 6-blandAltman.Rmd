@@ -1,0 +1,390 @@
+---
+title: "4-blandAltman"
+author: "Will Sheppard"
+date: "2023-02-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+
+```{r load packages}
+library(tidyverse)
+library(blandr)
+library(ggplot2)
+library(psych)
+library(ggpubr)
+```
+# read and merge the data fames
+gDenom is th edenomenator for the guess rate fraction - 1/10 or 1/26
+```{r file paths}
+
+gDenom <- 26
+
+csFilePath <- paste("../data/csThreshModelled",gDenom, ".csv", sep = "")
+vaFilePath <- paste("../data/vaThreshModelled",gDenom, ".csv", sep = "")
+```
+
+Different particapnts data became unable to be modelled depending on the parameters
+```{r read data}
+#cs <- read.csv("../data/csThreshClean.csv") %>%
+#  select(-X)
+
+cs26exc <- c(19, 29, 61, 66)
+cs10exc <- c(2, 12, 19, 29, 33, 40, 49, 61, 66)
+
+va26exc <- c(4)
+
+if(gDenom == 26){
+  cs <- read.csv(csFilePath) %>%
+  select(-X)%>%
+    filter(!id %in% cs26exc)
+  
+  va <- read.csv(vaFilePath)%>%
+  select(-X)%>%
+    filter(!id %in% va26exc)
+  
+}else{
+  cs <- read.csv(csFilePath) %>%
+  select(-X)%>%
+    filter(!id %in% cs10exc)
+  
+  va <- read.csv(vaFilePath)%>%
+  select(-X)
+}
+
+
+
+
+df<- merge(cs, va)
+```
+
+
+
+# partiicpant 65 completed the lab session at home adn the online sesion in lab. swap these data
+```{r 65}
+
+six5 <- df %>%
+  filter(id == 65)%>%
+  rename(csO = csLab)%>%
+  rename(csLab = csOnline)%>%
+  rename(csOnline = csO)%>%
+  rename(vaO = vaLab)%>%
+  rename(vaLab = vaOnline)%>%
+  rename(vaOnline = vaO)
+
+df <- df %>% 
+  filter(id != 65)
+
+df <- rbind(df, six5)
+```
+
+
+# cap cs scores
+
+```{r cap cs}
+
+df <- df %>%
+  mutate(csOnline = case_when(
+    csOnline > 1.92 ~ 1.92,
+    TRUE ~ csOnline
+  ))%>%
+  mutate(csLab = case_when(
+    csLab > 1.92 ~ 1.92,
+    TRUE ~ csLab
+    ))%>%
+  mutate(vaChart = case_when(
+    vaChart < -0.2 ~ -0.2,
+    TRUE ~ vaChart
+    ))
+```
+
+# correlation
+are the tests related?
+```{r corr, eval=FALSE}
+corrdf <- df%>%
+  select(-id)
+
+psych::corr.test(x = corrdf, adjust = 'fdr')
+```
+
+```{r bland stats}
+p = 0.95
+
+#pp <- c(3,18,31)
+
+#df <- df %>%
+#  filter(!id %in% pp)
+
+csCL <- blandr.statistics(df$csChart, df$csLab, sig.level = p)
+csCO <- blandr.statistics(df$csChart, df$csOnline, sig.level = p)
+csLO <- blandr.statistics(df$csLab, df$csOnline, sig.level = p)
+
+vaCL <- blandr.statistics(df$vaChart, df$vaLab, sig.level = p)
+vaCO <- blandr.statistics(df$vaChart, df$vaOnline, sig.level = p)
+vaLO <- blandr.statistics(df$vaLab, df$vaOnline, sig.level = p)
+```
+
+```{r cs graph parameters}
+
+csMaxDiff <- max(c(max((csCL$differences)), max((csCO$differences)), max((csLO$differences))  ) )
+csMinDiff <- min(c(min((csCL$differences)), min((csCO$differences)), min((csLO$differences))  ) )
+
+csMaxMean <- max(c(max((csCL$means)), max((csCO$means)), max((csLO$means))  ) )
+csMinMean <- min(c(min((csCL$means)), min((csCO$means)), min((csLO$means))  ) )
+```
+
+```{r cs differences}
+
+round((sum(csCL$differences>0.15)/length(csCL$differences))*100, digits = 2)
+round((sum(csCO$differences>0.15)/length(csCO$differences))*100, digits = 2)
+round((sum(csLO$differences>0.15)/length(csLO$differences))*100, digits = 2)
+```
+
+```{r va differences}
+
+round((sum(vaCL$differences>0.2)/length(vaCL$differences))*100, digits = 2)
+round((sum(vaCO$differences>0.2)/length(vaCO$differences))*100, digits = 2)
+round((sum(vaLO$differences>0.2)/length(vaLO$differences))*100, digits = 2)
+
+round((sum(vaCL$differences>0.1)/length(vaCL$differences))*100, digits = 2)
+round((sum(vaCO$differences>0.1)/length(vaCO$differences))*100, digits = 2)
+round((sum(vaLO$differences>0.1)/length(vaLO$differences))*100, digits = 2)
+```
+
+# draw BA plots
+```{r CS BA}
+
+
+csCO_BA <- blandr.draw(df$csChart, df$csOnline)+
+  ylim(csMinDiff, csMaxDiff)+
+  xlim(csMinMean, csMaxMean)+ 
+  #labs(tag = "A")+
+  theme(
+    plot.title = element_blank()
+    )
+
+csCL_BA <- blandr.draw(df$csChart, df$csLab)+
+  ylim(csMinDiff, csMaxDiff)+
+  xlim(csMinMean, csMaxMean)+
+  #labs(tag = "B")+
+  theme(
+    plot.title = element_blank()
+    )
+
+csLO_BA <- blandr.draw(df$csLab, df$csOnline)+
+  ylim(csMinDiff, csMaxDiff)+
+  xlim(csMinMean, csMaxMean)+
+  #labs(tag = "C")+
+  theme(
+    plot.title = element_blank()
+    )
+
+
+#show(csCO_BA)
+#show(csCL_BA)
+#show(csLO_BA)
+```
+
+```{r arrange cs plots, fig.align='center', fig.width= 4, fig.height=6}
+
+csPlot <- ggarrange(csCO_BA + rremove("xlab") + rremove("x.text")  + rremove("ylab"), 
+          NULL,
+          csCL_BA + rremove("xlab") + rremove("x.text") +ylab("Differences (log units)"), 
+          NULL,
+          csLO_BA + rremove("ylab") + xlab("Means (log units)"),
+          ncol = 1,
+          heights = c(1, -0.2, 1, -0.2, 1),
+          labels = c("A", "", "B", "", "C"),
+          align = "hv")
+
+show(csPlot)
+
+```
+
+
+```{r va BA}
+vaUpper <- 0.2
+vaLower <- -0.25
+
+vaCL_BA <- blandr.draw(df$vaChart, df$vaLab)+
+  scale_y_continuous(breaks = c(-0.4, -0.2, 0, 0.2), limits = c(vaLower, vaUpper))+scale_x_continuous(limits = c(-.20, .10), breaks = c(-0.2, -0.1, 0.0, .10))+ 
+  theme(
+  plot.title = element_blank())
+#show(vaCL_BA)
+
+vaCO_BA <- blandr.draw(df$vaChart, df$vaOnline)+
+  ylim(vaLower, vaUpper)+scale_y_continuous(breaks = c(-0.4, -0.2, 0, 0.2), limits = c(vaLower, vaUpper))+scale_x_continuous(limits = c(-.20, .10), breaks = c(-0.2, -0.1, 0.0, .10))+ 
+  theme(
+  plot.title = element_blank())
+vaLO_BA <- blandr.draw(df$vaLab, df$vaOnline)+ylim(vaLower, vaUpper)+scale_y_continuous(breaks = c(-0.4, -0.2, 0, 0.2), limits = c(vaLower, vaUpper))+
+  scale_x_continuous(limits = c(-.20, .10), breaks = c(-0.2, -0.1, 0.0, .10))+ 
+  theme(
+  plot.title = element_blank())
+
+show(vaCL_BA)
+show(vaCO_BA)
+show(vaLO_BA)
+```
+```{r arrange va plots, fig.align='center', fig.width= 4, fig.height=6}
+
+vaPlot <- ggarrange(vaCO_BA + rremove("xlab") + rremove("x.text")  + rremove("ylab"), 
+          NULL,
+          vaCL_BA + rremove("xlab") + rremove("x.text") + ylab("Differences (logMAR)"), 
+          NULL,
+          vaLO_BA + rremove("ylab") + xlab("Means (logMAR)"),
+          ncol = 1,
+          heights = c(1, -0.2, 1, -0.2, 1),
+          labels = c("A", "", "B", "", "C"),
+          align = "hv")
+
+show(vaPlot)
+
+```
+
+```{r param extract funciton}
+
+paramExt <- function(baObj){ # create a function to extract parameters
+  
+  comp <- deparse(substitute(baObj))
+  
+  bias <- round(baObj$bias, digits = 2)
+  biasUCI <- round(baObj$biasUpperCI, digits = 2)
+  biasLCI <- round(baObj$biasLowerCI, digits = 2)
+  
+  upperLoA <- round(baObj$upperLOA, digits = 2)
+  upperLoA_UCI <- round(baObj$upperLOA_upperCI, digits = 2)
+  upperLoA_LCI <- round(baObj$upperLOA_lowerCI, digits = 2)
+  
+  lowerLoA <- round(baObj$lowerLOA, digits = 2)
+  lowerLoA_UCI <- round(baObj$lowerLOA_upperCI, digits = 2)
+  lowerLoA_LCI <- round(baObj$lowerLOA_lowerCI, digits = 2)
+  
+  LoAdiff <- round(baObj$upperLOA - baObj$lowerLOA, digits = 2)
+  
+  print(paste(comp, "bias:", bias))
+  print(paste(comp, "bias UCI:", biasUCI))
+  print(paste(comp, "bias LCI:", biasLCI))
+  
+  print(paste(comp, "upper LoA:", upperLoA))
+  print(paste(comp, "upper LoA UCI:", upperLoA_UCI))
+  print(paste(comp, "upper LoA LCI:", upperLoA_LCI))
+  
+  print(paste(comp, "lower LoA:", lowerLoA))
+  print(paste(comp, "lower LoA UCI:", lowerLoA_UCI))
+  print(paste(comp, "lower LoA LCI:", lowerLoA_LCI))
+  
+  print(paste(comp, "LoA diff:", LoAdiff))
+  
+  print("END")
+  }
+
+
+
+```
+
+
+
+```{r cs params}
+
+paramExt(csCO)
+paramExt(csCL)
+paramExt(csLO)
+
+
+```
+
+```{r va params}
+
+paramExt(vaCO)
+paramExt(vaCL)
+paramExt(vaLO)
+```
+
+
+```{r plot params}
+
+h = 13.5
+w = h*1.5
+d = 800
+```
+
+# save plots
+```{r cs save plots, eval = FALSE}
+
+ggsave(paste("../figures/csBA.png", sep = ""), 
+       plot = csPlot, dpi = d,units = 'cm', height = 24, width = 18)
+
+#ggsave(paste("../figures/csCL_BA",gDenom,".png", sep = ""), 
+#       plot = csCL_BA, dpi = d,units = 'cm', height = h, width = w)
+#ggsave(paste("../figures/csCL_BA",gDenom,".png", sep = ""), 
+#       plot = csCO_BA, dpi = d,units = 'cm', height = h, width = w)
+#ggsave(paste("../figures/csCL_BA",gDenom,".png", sep = ""), 
+#       plot = csLO_BA, dpi = d,units = 'cm', height = h, width = w)
+
+```
+
+
+```{r save va plots, eval = FALSE}
+
+ggsave(paste("../figures/vaBA.png", sep = ""), 
+       plot = vaPlot, dpi = d,units = 'cm', height = 24, width = 18)
+
+#ggsave("../figures/vaCL_BA.png", plot = vaCL_BA, dpi = 800,units = 'cm', height = h, width = w)
+#ggsave("../figures/vaCO_BA.png", plot = vaCO_BA, dpi = 800,units = 'cm', height = h, width = w)
+#ggsave("../figures/vaLO_BA.png", plot = vaLO_BA, dpi = 800,units = 'cm', height = h, width = w)
+```
+
+```{r descriptives}
+
+require(rstatix)
+
+descriptives <- df %>%
+  summarise(
+    csCmean = mean(csChart),
+    csCsd = sd(csChart),
+    csUmean = mean(csOnline),
+    csUsd = sd(csOnline),
+    csSmean = mean(csLab),
+    csSsd = sd(csLab),
+    vaCmean = mean(vaChart), 
+    vaCsd = sd(vaChart),
+    vaUmean = mean(vaOnline),
+    vaUsd = sd(vaOnline),
+    vaSmean = mean(vaLab),
+    vaSsd = sd(vaLab)
+            )%>%                   # round all columns to 2 dp
+  mutate_if(is.numeric,
+            round,
+            digits = 2)
+
+longCS <- cs %>%
+  pivot_longer(!id, names_to = "test", values_to = "cs")
+
+longVA <- va %>%
+  pivot_longer(!id, names_to = "test", values_to = "va")
+
+# clearly not normal, use KW
+ggplot(longCS, aes(x = cs, color = test, fill = test))+
+  geom_density(alpha = .4)
+
+# visually approaching normal, SW test to cofirm
+ggplot(longVA, aes(x = va, color = test, fill = test))+
+  geom_density(alpha = .4)
+
+# lab values fail test, use KW test
+shapiro.test(va$vaOnline)
+shapiro.test(va$vaLab)
+shapiro.test(va$vaChart)
+
+kruskal.test(cs ~ test, data = longCS)
+kruskal.test(va ~ test, data = longVA)
+
+# BH chosen as this is the most powerful test
+pairwise.wilcox.test(longVA$va, longVA$test,
+                 p.adjust.method = "BH", paired = T)
+```

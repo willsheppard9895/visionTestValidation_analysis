@@ -1,0 +1,396 @@
+---
+title: "10-exp2MLM"
+author: "Will Sheppard"
+date: "2023-11-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+THe aim of this script is to get the best fitting MLM for the contrast sensitivity data by means of BIC comparison, whereby we will compare 3 distributions: Gamma, Gaussian and Inverse Gausia using the lme4 package. The lmer funciton will be used for the Gaussian distributions and the glmer function will be used for the Gamma and inverse gausian distributions.
+
+fixed parameters: visual condition 
+random parameters: Participant id and type of test (online v chart)
+
+```{r packages}
+library(tidyverse)
+require(modelsummary)
+require(tibble)
+require(flextable)
+library(lme4)
+library(lmerTest)
+library(rstatix)
+
+```
+
+```{r read data}
+
+cs <- read.csv("../dataExp2/csThresh.csv") 
+va <- read.csv("../dataExp2/vaThresh.csv")
+chart <- read.csv("../dataExp2/chartTest.csv")
+```
+
+
+
+```{r manipulate DFs}
+cs <- na.omit(cs)
+va <- va %>%
+  filter(threshold <= 1.1)
+
+cs <- left_join(cs, chart, by = c("ppid", "condition")) %>%
+  filter(threshold > 0)
+va <- left_join(va, chart, by = c("ppid", "condition"))
+va <- va %>%
+  filter(Participant.Private.ID != 8113028)
+```
+
+```{r cs data prep}
+
+# calculate online CS threshold
+cs <- cs %>%
+  mutate(online = 2 + log10(1/threshold))
+
+# gather relevant columns only
+# rename the generic cs column to chart so we can pivot longer
+csLmDf <- cs %>%
+  select(ppid, condition, session, online, cs)%>%
+  rename(chart = cs) 
+
+# gether the test types into one column
+csLmDf <- csLmDf %>%
+  pivot_longer(cols = c(online, chart),
+               names_to = "test",
+               values_to = "cs")
+
+# Online CS data is not normally distributed. Therefore, we only test inv Gau and Gamma dists
+csLmDf %>%
+  group_by(test, condition) %>%
+  shapiro_test(cs)
+
+# calculate the two scaled parameters
+# cs.s for the gaussian distribution
+# cs.t for the inverse gaussian and gamma distributions - thse ecan only take positive values
+csLmDf <- csLmDf %>%
+  group_by(test) %>%
+  mutate(cs.s = scale(cs),
+         cs.t = cs.s+3)
+
+
+# chart values are all 2DP so online values should also be 2 dp
+# otherwise this creates extra error
+csLmDf$cs <- round(csLmDf$cs, digits = 2)
+
+csLmDf$condition <- as.factor(csLmDf$condition)
+
+levels(csLmDf$condition)
+
+# create the bino vs less degraded vecotr
+# keeps all info in without creating an extra comparison
+bino_vs_lessDeg <- c( 1/3, 1/3, -2/3)
+full_vs_mono <- c(1/2, -1/2, 0)
+
+contrasts(csLmDf$condition) <- cbind(bino_vs_lessDeg, full_vs_mono)
+
+```
+
+```{r cs raw MLM}
+
+# Nelder_Mead - SINGUALR. simplify random effects. test has lowest variance, remove.
+# bobyqa - 
+# nloptwrap - 
+# csIgMax <- glmer(cs ~ condition + test + condition:test + # FIXED EFFECTS
+#                (1|ppid) + (1|test) + (1|session), # RANDOM EFFECTS
+#      data = csLmDf, 
+#      family = inverse.gaussian(link = "identity"),
+#          control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+# summary(csIgMax)
+
+# Nelder_Mead - Converged
+# bobyqa - 
+# nloptwrap - 
+# csIgTwo <- glmer(cs ~ condition + test + condition:test + # FIXED EFFECTS
+#                (1|ppid) + (1|session), # RANDOM EFFECTS
+#      data = csLmDf,
+#      family = inverse.gaussian(link = "identity"),
+#          control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+# summary(csIgTwo)
+# csIgFinal <- csIgTwo
+
+# Nelder_Mead - SINGUALR. simplify random effects. test has lowest variance, remove.
+# bobyqa - 
+# nloptwrap - 
+# csGammaMax <- glmer(cs ~ condition + test + condition:test + # FIXED EFFECTS
+#                (1|ppid) + (1|test) + (1|session), # RANDOM EFFECTS
+#      data = csLmDf,
+#      family = Gamma(link = "identity"),
+#          control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+# summary(csGammaMax)
+
+# Nelder_Mead - CONVERGES.
+# bobyqa - 
+# nloptwrap - 
+csGammaTwo <- glmer(cs ~ condition + test + condition:test + # FIXED EFFECTS
+               (1|ppid) + (1|session), # RANDOM EFFECTS
+     data = csLmDf,
+     family = Gamma(link = "identity"),
+         control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+summary(csGammaTwo)
+
+#csGammaFinal <- csGammaTwo
+
+# Gamma has the lower BIC
+#anova(csIgFinal, csGammaFinal)
+
+csFinal <- csGammaTwo
+
+```
+
+
+```{r cs scaled MLM}
+
+# Nelder_Mead - Failed to converge
+# bobyqa - SINGULAR. Test has the lowest variance, remove
+# nloptwrap - 
+# csIgMax.s <- glmer(cs.t ~ condition*test + # FIXED EFFECTS
+#                (1|ppid) + (1|test) + (1|session), # RANDOM EFFECTS
+#      data = csLmDf,
+#      family = inverse.gaussian(link = "identity"),
+#      control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 10000000)))
+# summary(csIgMax.s)
+
+# Nelder_Mead - CONVERGED.
+# bobyqa - 
+# nloptwrap - 
+# csIgTwo.s <- glmer(cs.t ~ condition*test + # FIXED EFFECTS
+#                (1|ppid) + (1|session), # RANDOM EFFECTS
+#      data = csLmDf,
+#      family = inverse.gaussian(link = "identity"),
+#      control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+# summary(csIgTwo.s)
+# csIgFinal.s <- csIgTwo.s
+
+# Nelder_Mead - SINGULAR
+# bobyqa - SINGULAR.Test has the lowest variance, remove
+# nloptwrap - 
+# csGammaMax.s <- glmer(cs.t ~ condition*test + # FIXED EFFECTS
+#                (1|ppid) + (1|test) + (1|session), # RANDOM EFFECTS
+#      data = csLmDf,
+#      family = Gamma(link = "identity"),
+#      control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+# summary(csGammaMax.s)
+
+# Nelder_Mead - CONVERGED
+# bobyqa - 
+# nloptwrap - 
+csGammaTwo.s <- glmer(cs.t ~ condition*test + # FIXED EFFECTS
+               (1|ppid) + (1|session), # RANDOM EFFECTS
+     data = csLmDf,
+     family = Gamma(link = "identity"),
+     control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+summary(csGammaTwo.s)
+
+#csGammaFinal.s <- csGammaTwo.s
+
+# Gamma has the lowest BIC
+#anova(csIgFinal.s, csGammaFinal.s)
+
+csFinal.s <- csGammaTwo.s
+```
+
+
+```{r va data prep}
+
+vaLmDf <- va %>%
+  rename(online = threshold) %>%
+  select(ppid, condition, session, online, va)%>%
+  rename(chart = va)
+
+vaLmDf <- vaLmDf %>%
+  pivot_longer(cols = c(online, chart),
+               names_to = "test",
+               values_to = "va")
+
+# No blur condition is not normally distributed for both tests. Therefore, we only test inv Gau and Gamma dists
+vaLmDf %>%
+  group_by(test, condition) %>%
+  shapiro_test(va)
+
+vaLmDf$va.t <- vaLmDf$va+1
+
+vaLmDf <- vaLmDf %>%
+  group_by(test)%>%
+  mutate(va.s = scale(va)+2)
+
+
+
+vaLmDf$condition <- as.factor(vaLmDf$condition)
+
+levels(vaLmDf$condition)
+
+bino_vs_lessDeg <- c( 1/3, 1/3, -2/3)
+full_vs_mono <- c(1/2, -1/2, 0)
+
+contrasts(vaLmDf$condition) <- cbind(bino_vs_lessDeg, full_vs_mono)
+
+```
+
+```{r va raw MLM}
+
+
+# Nelder_Mead - SINGUALR. simplify random effects. test has lowest variance, remove.
+# bobyqa - 
+# nloptwrap - 
+# vaIgMax <- glmer(va.t ~ condition + test + condition:test + # FIXED EFFECTS
+#                (1|ppid) + (1|test) + (1|session), # RANDOM EFFECTS
+#      data = vaLmDf,
+#      family = inverse.gaussian(link = "identity"),
+#          control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+# summary(vaIgMax)
+
+# Nelder_Mead - CONVERGED.
+# bobyqa - 
+# nloptwrap - 
+vaIgTwo <- glmer(va.t ~ condition + test + condition:test + # FIXED EFFECTS
+               (1|ppid) + (1|session), # RANDOM EFFECTS
+     data = vaLmDf,
+     family = inverse.gaussian(link = "identity"),
+         control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+summary(vaIgTwo)
+
+#vaIgFinal <- vaIgTwo
+
+
+# Nelder_Mead - FAILED TO CONVERGE.
+# bobyqa - SINGULAR. simplify random effects. test has lowest variance, remove.
+# nloptwrap - 
+# vaGammaMax <- glmer(va.t ~ condition + test + condition:test + # FIXED EFFECTS
+#                (1|ppid) + (1|test) + (1|session), # RANDOM EFFECTS
+#      data = vaLmDf,
+#      family = Gamma(link = "identity"),
+#          control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 10000000)))
+# summary(vaGammaMax)
+
+# Nelder_Mead - CONVERGED.
+# bobyqa - 
+# nloptwrap - 
+# vaGammaTwo <- glmer(va.t ~ condition + test + condition:test + # FIXED EFFECTS
+#                (1|ppid) + (1|session), # RANDOM EFFECTS
+#      data = vaLmDf,
+#      family = Gamma(link = "identity"),
+#          control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+# summary(vaGammaTwo)
+# vaGammaFinal <- vaGammaTwo
+
+# IG has lowest BIC
+#anova(vaIgFinal, vaGammaFinal)
+
+vaFinal <- vaIgTwo
+```
+
+```{r va scaled MLM}
+
+# Nelder_Mead - FAILED TO CONVERGE.
+# bobyqa - SINGULAR. simplify random effects. test has lowest variance, remove.
+# nloptwrap - 
+# vaIgMax.s <- glmer(va.s ~ condition + test + condition:test + # FIXED EFFECTS
+#                (1|ppid) + (1|test) + (1|session), # RANDOM EFFECTS
+#      data = vaLmDf,
+#      family = inverse.gaussian(link = "identity"),
+#          control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 10000000)))
+# summary(vaIgMax.s)
+
+# Nelder_Mead - CONVERGED.
+# bobyqa - 
+# nloptwrap - 
+# vaIgTwo.s <- glmer(va.s ~ condition + test + condition:test + # FIXED EFFECTS
+#                (1|ppid) + (1|session), # RANDOM EFFECTS
+#      data = vaLmDf,
+#      family = inverse.gaussian(link = "identity"),
+#          control = glmerControl(optimizer = "Nelder_Mead", optCtrl = list(maxfun = 10000000)))
+# summary(vaIgTwo.s)
+# vaIgFinal.s <- vaIgTwo.s
+
+
+# Nelder_Mead - SINGULAR.simplify random effects. test has lowest variance, remove.
+# bobyqa - 
+# nloptwrap - 
+# vaGammaMax.s <- glmer(va.s ~ condition + test + condition:test + # FIXED EFFECTS
+#                (1|ppid) + (1|test) + (1|session), # RANDOM EFFECTS
+#      data = vaLmDf,
+#      family = Gamma(link = "identity"),
+#          control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 10000000)))
+# summary(vaGammaMax.s)
+
+# Nelder_Mead - CONVERGED.
+# bobyqa - 
+# nloptwrap - 
+vaGammaTwo.s <- glmer(va.s ~ condition + test + condition:test + # FIXED EFFECTS
+               (1|ppid) + (1|session), # RANDOM EFFECTS
+     data = vaLmDf,
+     family = Gamma(link = "identity"),
+         control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 10000000)))
+summary(vaGammaTwo.s)
+
+#vaGammaFinal.s <-  vaGammaTwo.s 
+
+# Gamma has lowest BIC
+#anova(vaIgFinal.s, vaGammaFinal.s)
+
+vaFinal.s <- vaGammaTwo.s
+```
+
+```{r cs tables}
+
+
+modelsummary(list("Raw Final (Gamma)" = csFinal, "Scaled Final (Gamma)" = csFinal.s), 
+             stars = T, 
+             title = "CS MLM output - Raw data (log units) vs scaled data (z-score)",
+             estimate = "{estimate} [{conf.low}, {conf.high}]{stars}",
+             statistic = "({std.error})",
+             shape = term ~ model + statistic, #statistics in separate columns
+             fmt = fmt_decimal(digits = 2, pdigits = 3),
+             output = "csRawVsZ.html"
+             )
+```
+
+```{r va tables}
+
+
+modelsummary(list("Raw Final (IG)" = vaFinal, "Scaled Final (Gamma)" = vaFinal.s), 
+             stars = T, 
+             title = "VA MLM output - Raw data (logMAR) vs scaled data (z-score)",
+             estimate = "{estimate} [{conf.low}, {conf.high}]{stars}",
+             statistic = "({std.error})",
+             shape = term ~ model + statistic, #statistics in separate columns,
+             fmt = fmt_decimal(digits = 2, pdigits = 3),
+             output = "vaRawVsZ.html"
+             )
+```
+
+```{r cs Conversion}
+
+csChart <- csLmDf %>%
+  filter(test == "chart")
+
+meanCS <- mean(csChart$cs)
+sdCS <- sd(csChart$cs)
+
+interceptCS <- round(meanCS - 0.07*sdCS, digits = 2)
+binovlessDegCS <- round(1.55*sdCS, digits = 2)
+monovfullCS <- round(0.74*sdCS, digits = 2)
+```
+
+
+```{r va conversion}
+vaChart <- vaLmDf %>%
+  filter(test == "chart")
+
+meanVA <- mean(vaChart$va)
+sdVA <- sd(vaChart$va)
+
+interceptVA <- round(meanCS - 0.03*sdCS, digits = 2)
+binovlessDegCS <- round(-1.55*sdCS, digits = 2)
+```
+

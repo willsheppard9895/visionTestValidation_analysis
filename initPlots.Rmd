@@ -1,0 +1,112 @@
+---
+title: "visioninitialPlots"
+output: html_document
+date: "2022-10-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+
+```{r load packages}
+library(plyr)
+library(blandr)
+library(ggplot2)
+library(psych)
+```
+
+## read data
+i have simmed 100 particiapnts from the 4 pilot data sets
+```{r read data, echo=FALSE}
+df <- read.csv("../data/thresholdDF.csv")
+```
+
+```{r cs dataframe}
+cs <- df %>%
+  select(id, contains('cs'))%>%
+  pivot_longer(!id, names_to = 'test', values_to = 'logCS')
+
+```
+
+```{r va dataframe}
+va <- df %>%
+  select(id, contains('va'))%>%
+  pivot_longer(!id, names_to = 'test', values_to = 'VA')
+```
+
+# group means
+```{r group meanas}
+
+csMeans <- ddply(cs, 'test', summarise, grp.mean = mean(logCS, na.rm = TRUE))
+vaMeans <- ddply(va, 'test', summarise, grp.mean = mean(VA, na.rm = TRUE))
+
+```
+
+# distributions
+```{r distributions, echo = FALSE}
+ggplot(cs, aes(x = logCS, color = test))+
+  geom_density()+
+  geom_vline(data = csMeans, 
+             aes(xintercept = grp.mean,
+                 color = test),
+             linetype = 'dashed')
+
+
+
+ggplot(va, aes(x = VA, color = test))+
+  geom_density()+
+  geom_vline(data = vaMeans, 
+             aes(xintercept = grp.mean,
+                 color = test),
+             linetype = 'dashed')
+
+```
+
+# scatter plots
+```{r cs scatter}
+ggplot(df, aes(x = csChart, y = csLab))+
+  geom_jitter()+
+  geom_smooth(method = lm, se = FALSE, fullrange = TRUE)+
+  geom_abline(intercept = 0, slope = 1)
+
+
+ggplot(df, aes(x = csChart, y = csOnline))+
+  geom_jitter()+
+  geom_smooth(method = lm, se = FALSE)+
+  geom_abline(intercept = 0, slope = 1)
+
+ggplot(df, aes(x = csLab, y = csOnline))+
+  geom_jitter()+
+  geom_smooth(method = lm, se = FALSE)+
+  geom_abline(intercept = 0, slope = 1)
+```
+
+```{r va scatter}
+ggplot(df, aes(x = vaChart, y = vaLab))+
+  geom_point()+
+  geom_smooth(method = lm, se = FALSE)+
+  geom_abline(intercept = 0, slope = 1)
+
+
+ggplot(df, aes(x = vaChart, y = vaOnline))+
+  geom_point()+
+  geom_smooth(method = lm, se = FALSE)+
+  geom_abline(intercept = 0, slope = 1)
+
+ggplot(df, aes(x = vaLab, y = vaOnline))+
+  geom_point()+
+  geom_smooth(method = lm, se = FALSE)+
+  geom_abline(intercept = 0, slope = 1)
+```
+
+```{r test plots}
+ggplot(va, aes(x = test, y = VA, group = id, color = id))+
+  geom_point()+
+  geom_line()+
+  geom_hline(data = vaMeans, 
+             aes(yintercept = grp.mean,
+                 linetype = test))
+```

@@ -1,0 +1,94 @@
+---
+title: "10-exp2BA"
+author: "Will Sheppard"
+date: "2023-11-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+ibraries
+```{r libraries}
+
+require(tidyverse)
+require(ggpubr)
+require(blandr)
+```
+
+Import the visual test data
+```{r read data}
+
+csImport <- read.csv("../dataExp2/csThresh.csv") 
+vaImport <- read.csv("../dataExp2/vaThresh.csv")
+chart <- read.csv("../dataExp2/chartTest.csv")
+```
+
+```{r manipulate cs DFs}
+cs <- na.omit(csImport)
+
+csMerge <- left_join(cs, chart, by = c("ppid", "condition")) %>%
+  filter(threshold > 0)
+csEst <- csMerge %>%
+  mutate(online = 2 + log10(1/threshold))
+
+csBaDf <- csEst %>%
+  select(ppid, condition, session, online, cs)%>%
+  rename(chart = cs) 
+
+csBaDf <- csBaDf %>%
+  mutate(online.s = scale(online)+3,
+         chart.s = scale(chart)+3)
+
+csBaDf <- csBaDf %>%
+  mutate_if(is.numeric, round, digits = 2)
+
+show(head(csBaDf))
+
+
+```
+
+```{r manipulate va DFs}
+
+# this participants chart score was entered twice
+va <- vaImport %>%
+  filter(threshold <= 1.1)
+vaMerge <- left_join(va, chart, by = c("ppid", "condition"))%>%
+  filter(Participant.Private.ID != 8113028)
+
+
+vaBaDf <- vaMerge %>%
+  rename(online = threshold) %>%
+  select(ppid, condition, session, online, va)%>%
+  rename(chart = va)
+
+vaBaDf <- vaBaDf %>%
+  mutate(chart.s = scale(chart)+2,
+         online.s = scale(online)+2)
+
+show(head(vaBaDf))
+
+```
+
+```{r cs BA}
+
+p = 0.95
+
+csBA <- blandr.statistics(csBaDf$chart, csBaDf$online, sig.level = p)
+csBA.s <- blandr.statistics(csBaDf$chart.s, csBaDf$online.s, sig.level = p)
+
+blandr.draw(csBaDf$chart, csBaDf$online)
+blandr.draw(csBaDf$chart.s, csBaDf$online.s)
+```
+
+
+```{r va BA}
+
+vaBA <- blandr.statistics(vaBaDf$chart, vaBaDf$online, sig.level = p)
+vaBA.s <- blandr.statistics(vaBaDf$chart.s, vaBaDf$online.s, sig.level = p)
+
+blandr.draw(vaBaDf$chart, vaBaDf$online)
+blandr.draw(vaBaDf$chart.s, vaBaDf$online.s)
+
+```
