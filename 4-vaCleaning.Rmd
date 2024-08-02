@@ -60,65 +60,6 @@ vaThresh <- merge(vaThreshOnline, vaThreshLab)%>%
 vaThresh <- merge(vaThresh, vaChart)
 ```
 
-```{r va mod}
-rtOnlineMod <- glm(Correct ~ logMAR * responseTime, 
-                   data = vaShortOnline,
-                   family = 'binomial')
-summary(rtOnlineMod)
-rtOnlineMod$coefficients[3]*1000
-
-rtLabMod <- glm(Correct ~ logMAR * responseTime, 
-                   data = vaShortLab,
-                   family = 'binomial')
-summary(rtLabMod)
-rtLabMod$coefficients[3]*1000
-
-
-
-
-```
-
-
-```{r rt_plots}
-
-labChartdf <- vaShortLab %>%
-  select(responseTime, Correct)%>%
-  mutate(setting = 'Semi-Supervised')
-
-onlineChartdf <- vaShortOnline %>%
-  select(responseTime, Correct)%>%
-  mutate(setting = 'Unsupervised')
-
-chartDF <- rbind(labChartdf, onlineChartdf)
-chartDF$Correct <- as.factor(chartDF$Correct)
-chartDF$setting <- as.factor(chartDF$setting)
-
-
-rtDist <- ggplot(chartDF, aes(x = responseTime, color = Correct, fill = Correct))+
-  geom_density()+
-  facet_grid(~setting)+
-  xlab("Response Time (ms)")
-
-show(rtDist)
-
-rtDistZoom <- ggplot(chartDF, aes(x = responseTime, color = Correct, fill = Correct))+
-  geom_density(alpha = 0.3)+
-  facet_grid(~setting)+
-  xlab("Response Time (ms)")+
-  xlim(0, 20000)
-
-show(rtDistZoom)
-```
-
-
 ```{r save data}
 write.csv(vaThresh, "../data/vaThreshClean.csv")
-```
-
-```{r save graphs}
-h = 13.5
-w = h*1.5
-
-ggsave("../figures/rtDist.png", plot = rtDist, dpi = 800,units = 'cm', height = h, width = w)
-ggsave("../figures/rtDistZoom.png", plot = rtDistZoom, dpi = 800,units = 'cm', height = h, width = w)
 ```

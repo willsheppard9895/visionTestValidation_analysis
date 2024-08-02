@@ -50,38 +50,17 @@ summary(rtLabMod)
 
 ```
 
-lets remove responses where particiapnts took excelptionally long to respond
-```{r clean short data, eval=FALSE}
-upper <- 1.96
 
-csShortOnlineClean <- csShortOnline %>%
-  group_by(id, contrast)%>%
-  mutate(rtUpper = (upper*sd(responseTime)+mean(responseTime)))%>%
-  filter(responseTime < rtUpper)
-csShortLabClean <- csShortLab %>%
-  group_by(id, contrast)%>%
-  mutate(rtUpper = (upper*sd(responseTime)+mean(responseTime)))%>%
-  filter(responseTime < rtUpper)
-
-```
 
 ```{r create summary data frames}
 csSummOnline <- summShortCS(csShortOnline)
-#csSummOnlineClean <- summShortCS(csShortOnlineClean)
 
 csSummLab <- summShortCS(csShortLab)
-#csSummLabClean <- summShortCS(csShortLabClean)
 ```
 
 
-```{r combine datasets, eval=FALSE}
-
-csThresh <- merge(csThreshOnline, csThreshLab)
-csThresh <- merge(csThresh, csChart)
-```
 
 ```{r save data}
 write.csv(csSummLab, "../data/csSummLab.csv")
 write.csv(csSummOnline, "../data/csSummOnline.csv")
-#write.csv(csThresh, "../data/csThreshClean.csv")
 ```

@@ -1,5 +1,5 @@
 ---
-title: "1. Initial data screening"
+title: "1-Initial data screening"
 author: "Will Sheppard"
 date: "2022-11-11"
 output: html_document

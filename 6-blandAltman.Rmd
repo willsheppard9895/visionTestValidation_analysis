@@ -1,7 +1,7 @@
 ---
-title: "4-blandAltman"
+title: "6-blandAltman"
 author: "Will Sheppard"
-date: "2023-02-08"
+date: "2023-11-14"
 output: html_document
 ---
 
@@ -9,8 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
-
+The aim of this script is to compare the modelling of the cs and va data across the different functions and guess rates
 
 ```{r load packages}
 library(tidyverse)
@@ -19,372 +18,627 @@ library(ggplot2)
 library(psych)
 library(ggpubr)
 ```
-# read and merge the data fames
-gDenom is th edenomenator for the guess rate fraction - 1/10 or 1/26
-```{r file paths}
 
-gDenom <- 26
 
-csFilePath <- paste("../data/csThreshModelled",gDenom, ".csv", sep = "")
-vaFilePath <- paste("../data/vaThreshModelled",gDenom, ".csv", sep = "")
+```{r import and prep data}
+
+csImport <- read.csv("../data/csThreshModelled.csv") 
+vaImport <- read.csv("../data/vaThreshModelled.csv")
+
+
+
+
+# change names
+csName <- csImport %>%
+  rename(Chart = csChart)
+vaName <- vaImport %>%
+  rename(Chart = vaChart)
+
+# add guess rate to group by
+csAll <- csName %>%
+  mutate(gR = case_when(
+    guessRate > 0.05 ~ 10,
+    TRUE ~ 26)
+    )
+csAll$gR <- as.factor(csAll$gR)
+vaAll <- vaName %>%
+  mutate(gR = case_when(
+    guessRate > 0.05 ~ 10,
+    TRUE ~ 26)
+    )
+vaAll$gR <- as.factor(vaAll$gR)
+
+# remove rows with NAs
+#csNA <- na.omit(csAll)
+#vaNA <- na.omit(vaAll)
+
+
+
+# remove impossible cs values e.g. > 2 and < 0
+cs <- csAll %>%
+  filter(Lab <= 2 & Lab>0)%>%
+  filter(Online <= 2 & Online > 0)%>%
+  filter(Chart <= 1.92 & Chart|0)%>%
+  filter(id != 61)
+va <- vaAll %>%
+  filter(Lab <= 1.1 & Lab >= -0.2)%>%
+  filter(Online <= 1.1 & Online >= -0.2)%>%
+  filter(Chart <= 1.1 & Chart >= -0.4) %>%
+  filter(id!= 61)
+
+weibVA <- va %>%
+  filter(fun == "weibull_fun")
+
+
 ```
 
-Different particapnts data became unable to be modelled depending on the parameters
-```{r read data}
-#cs <- read.csv("../data/csThreshClean.csv") %>%
-#  select(-X)
+cap variables
+```{r cap}
 
-cs26exc <- c(19, 29, 61, 66)
-cs10exc <- c(2, 12, 19, 29, 33, 40, 49, 61, 66)
-
-va26exc <- c(4)
-
-if(gDenom == 26){
-  cs <- read.csv(csFilePath) %>%
-  select(-X)%>%
-    filter(!id %in% cs26exc)
-  
-  va <- read.csv(vaFilePath)%>%
-  select(-X)%>%
-    filter(!id %in% va26exc)
-  
-}else{
-  cs <- read.csv(csFilePath) %>%
-  select(-X)%>%
-    filter(!id %in% cs10exc)
-  
-  va <- read.csv(vaFilePath)%>%
-  select(-X)
-}
-
-
-
-
-df<- merge(cs, va)
-```
-
-
-
-# partiicpant 65 completed the lab session at home adn the online sesion in lab. swap these data
-```{r 65}
-
-six5 <- df %>%
-  filter(id == 65)%>%
-  rename(csO = csLab)%>%
-  rename(csLab = csOnline)%>%
-  rename(csOnline = csO)%>%
-  rename(vaO = vaLab)%>%
-  rename(vaLab = vaOnline)%>%
-  rename(vaOnline = vaO)
-
-df <- df %>% 
-  filter(id != 65)
-
-df <- rbind(df, six5)
-```
-
-
-# cap cs scores
-
-```{r cap cs}
-
-df <- df %>%
-  mutate(csOnline = case_when(
-    csOnline > 1.92 ~ 1.92,
-    TRUE ~ csOnline
+cs <- cs %>%
+  mutate(Online = case_when(
+    Online > 1.92 ~ 1.92,
+    TRUE ~ Online
   ))%>%
-  mutate(csLab = case_when(
-    csLab > 1.92 ~ 1.92,
-    TRUE ~ csLab
-    ))%>%
-  mutate(vaChart = case_when(
-    vaChart < -0.2 ~ -0.2,
-    TRUE ~ vaChart
+  mutate(Lab = case_when(
+    Lab > 1.92 ~ 1.92,
+    TRUE ~ Lab
+    ))
+va <- va %>%
+  mutate(Chart = case_when(
+    Chart < -0.2 ~ -0.2,
+    TRUE ~ Chart
     ))
 ```
 
-# correlation
-are the tests related?
-```{r corr, eval=FALSE}
-corrdf <- df%>%
-  select(-id)
+csBA stats
+```{r csBA}
 
-psych::corr.test(x = corrdf, adjust = 'fdr')
+funList <- as.list(unique(cs$fun))
+gList <- as.list(unique(cs$guessRate))
+
+genericDF <- data.frame(matrix(
+  data = NA,
+  ncol = 13,
+  nrow =  length(funList)*length(gList)
+))
+
+
+names <- c("funciton", "guessRate",
+           "bias", "biasLower", "biasUpper",
+           "lowerLOA", "lowerLOA_lowerCI", "lowerLOA_upperCI",
+           "upperLOA", "upperLOA_lowerCI", "upperLOA_upperCI",
+           "percHighdiff", "ciWidth")
+
+colnames(genericDF) <- names
+
+chartLab <- genericDF
+chartOnline <- genericDF
+labOnline <- genericDF
+
+p <- 0.95
+row <- 0
+
+for (f in funList) {
+  for (g in gList) {
+    
+    d <- cs %>%
+      filter(fun == f)%>%
+      filter(guessRate == g)
+    
+    
+    
+    row <- row + 1
+    
+    
+    chartLab[row, 1] <- f
+    chartLab[row, 2] <- g
+    chartLab[row, 3] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$bias, digits = 2)
+    chartLab[row, 4] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$biasLowerCI, digits = 2)
+    chartLab[row, 5] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$biasUpperCI, digits = 2)
+    chartLab[row, 6] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$lowerLOA, digits = 2)
+    chartLab[row, 7] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$lowerLOA_lowerCI, digits = 2)
+    chartLab[row, 8] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$lowerLOA_upperCI, digits = 2)
+    chartLab[row, 9] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$upperLOA, digits = 2)
+    chartLab[row, 10] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$upperLOA_lowerCI, digits = 2)
+    chartLab[row, 11] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$upperLOA_upperCI, digits = 2)
+    chartLab[row, 12] <- round((sum(abs(blandr.statistics(d$Chart, d$Lab, sig.level = p)$differences) > .15)/length(blandr.statistics(d$Chart, d$Lab, sig.level = p)$differences))*100, digits = 2)
+    chartLab[row, 13] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$upperLOA - blandr.statistics(d$Chart, d$Lab, sig.level = p)$lowerLOA, digits = 2)
+    
+    CL <- blandr.draw(d$Chart, d$Lab)+
+      ggtitle(paste("Chart v Lab. Function: ", f, ", guess rate: 1/", 1/g, sep = "" ))
+      
+    show(CL)
+    
+    chartOnline[row, 1] <- f
+    chartOnline[row, 2] <- g
+    chartOnline[row, 3] <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$bias, digits = 2)
+    chartOnline[row, 4] <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$biasLowerCI, digits = 2)
+    chartOnline[row, 5] <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$biasUpperCI, digits = 2)
+    chartOnline[row, 6] <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$lowerLOA, digits = 2)
+    chartOnline[row, 7] <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$lowerLOA_lowerCI, digits = 2)
+    chartOnline[row, 8] <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$lowerLOA_upperCI, digits = 2)
+    chartOnline[row, 9] <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$upperLOA, digits = 2)
+    chartOnline[row, 10] <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$upperLOA_lowerCI, digits = 2)
+    chartOnline[row, 11] <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$upperLOA_upperCI, digits = 2)
+    chartOnline[row, 12] <- round((sum(abs(blandr.statistics(d$Chart, d$Online, sig.level = p)$differences) > .15)/length(blandr.statistics(d$Chart, d$Online, sig.level = p)$differences))*100, digits = 2)
+    chartOnline[row, 13] <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$upperLOA - blandr.statistics(d$Chart, d$Online, sig.level = p)$lowerLOA, digits = 2)
+    
+    CO <- blandr.draw(d$Chart, d$Online)+
+      ggtitle(paste("Chart v Online. Function: ", f, ", guess rate: 1/", 1/g, sep = "" ))
+      
+    show(CO)
+    
+    labOnline[row, 1] <- f
+    labOnline[row, 2] <- g
+    labOnline[row, 3] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$bias, digits = 2)
+    labOnline[row, 4] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$biasLowerCI, digits = 2)
+    labOnline[row, 5] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$biasUpperCI, digits = 2)
+    labOnline[row, 6] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$lowerLOA, digits = 2)
+    labOnline[row, 7] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$lowerLOA_lowerCI, digits = 2)
+    labOnline[row, 8] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$lowerLOA_upperCI, digits = 2)
+    labOnline[row, 9] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$upperLOA, digits = 2)
+    labOnline[row, 10] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$upperLOA_lowerCI, digits = 2)
+    labOnline[row, 11] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$upperLOA_upperCI, digits = 2)
+    labOnline[row, 12] <- round((sum(abs(blandr.statistics(d$Lab, d$Online, sig.level = p)$differences) > .15)/length(blandr.statistics(d$Lab, d$Online, sig.level = p)$differences))*100, digits = 2)
+    labOnline[row, 13] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$upperLOA - blandr.statistics(d$Lab, d$Online, sig.level = p)$lowerLOA, digits = 2)
+    
+    LO <- blandr.draw(d$Lab, d$Online)+
+      ggtitle(paste("Lab v Online. Function: ", f, ", guess rate: 1/", 1/g, sep = "" ))
+      
+    show(LO)
+    
+    
+  }
+  
+}
+
 ```
 
-```{r bland stats}
-p = 0.95
 
-#pp <- c(3,18,31)
+We are basing the decision on the chart v online comparisons as this is most similar to what we want to use the test for
+```{r plot final cs}
 
-#df <- df %>%
-#  filter(!id %in% pp)
+csStats <- data.frame(matrix(
+  data = NA,
+  ncol = 13,
+  nrow =  3
+))
 
-csCL <- blandr.statistics(df$csChart, df$csLab, sig.level = p)
-csCO <- blandr.statistics(df$csChart, df$csOnline, sig.level = p)
-csLO <- blandr.statistics(df$csLab, df$csOnline, sig.level = p)
 
-vaCL <- blandr.statistics(df$vaChart, df$vaLab, sig.level = p)
-vaCO <- blandr.statistics(df$vaChart, df$vaOnline, sig.level = p)
-vaLO <- blandr.statistics(df$vaLab, df$vaOnline, sig.level = p)
-```
+names <- c("setting", "funciton", "guessRate",
+           "bias", "biasLower", "biasUpper",
+           "lowerLOA", "lowerLOA_lowerCI", "lowerLOA_upperCI",
+           "upperLOA", "upperLOA_lowerCI", "upperLOA_upperCI",
+           "point15diff")
 
-```{r cs graph parameters}
+colnames(csStats) <- names
+
+csFinal <- cs %>%
+  filter(fun == "weibull_fun")%>%
+  filter(gR == "26")
+
+csCO <- blandr.statistics(csFinal$Chart, csFinal$Online, sig.level = p)
+csCL <- blandr.statistics(csFinal$Chart, csFinal$Lab, sig.level = p)
+csLO <- blandr.statistics(csFinal$Lab, csFinal$Online, sig.level = p)
+
+
+csStats[1, 1] <- "chart v online"
+csStats[1, 2] <- "weibull_fun"
+csStats[1, 3] <- "26"
+csStats[1, 4] <- round(csCO$bias, digits = 2)
+csStats[1, 5] <- round(csCO$biasLowerCI, digits = 2)
+csStats[1, 6] <- round(csCO$biasUpperCI, digits = 2)
+csStats[1, 7] <- round(csCO$lowerLOA, digits = 2)
+csStats[1, 8] <- round(csCO$lowerLOA_lowerCI, digits = 2)
+csStats[1, 9] <- round(csCO$lowerLOA_upperCI, digits = 2)
+csStats[1, 10] <- round(csCO$upperLOA, digits = 2)
+csStats[1, 11] <- round(csCO$upperLOA_lowerCI, digits = 2)
+csStats[1, 12] <- round(csCO$upperLOA_upperCI, digits = 2)
+csStats[1, 13] <- round((sum(abs(csCO$differences) > .15)/length(csCO$differences))*100, digits = 2)
+
+csStats[2, 1] <- "chart v lab"
+csStats[2, 2] <- "weibull_fun"
+csStats[2, 3] <- "26"
+csStats[2, 4] <- round(csCL$bias, digits = 2)
+csStats[2, 5] <- round(csCL$biasLowerCI, digits = 2)
+csStats[2, 6] <- round(csCL$biasUpperCI, digits = 2)
+csStats[2, 7] <- round(csCL$lowerLOA, digits = 2)
+csStats[2, 8] <- round(csCL$lowerLOA_lowerCI, digits = 2)
+csStats[2, 9] <- round(csCL$lowerLOA_upperCI, digits = 2)
+csStats[2, 10] <- round(csCL$upperLOA, digits = 2)
+csStats[2, 11] <- round(csCL$upperLOA_lowerCI, digits = 2)
+csStats[2, 12] <- round(csCL$upperLOA_upperCI, digits = 2)
+csStats[2, 13] <- round((sum(abs(csCL$differences) > .15)/length(csCL$differences))*100, digits = 2)
+
+csStats[3, 1] <- "lab v online"
+csStats[3, 2] <- "weibull_fun"
+csStats[3, 3] <- "26"
+csStats[3, 4] <- round(csLO$bias, digits = 2)
+csStats[3, 5] <- round(csLO$biasLowerCI, digits = 2)
+csStats[3, 6] <- round(csLO$biasUpperCI, digits = 2)
+csStats[3, 7] <- round(csLO$lowerLOA, digits = 2)
+csStats[3, 8] <- round(csLO$lowerLOA_lowerCI, digits = 2)
+csStats[3, 9] <- round(csLO$lowerLOA_upperCI, digits = 2)
+csStats[3, 10] <- round(csLO$upperLOA, digits = 2)
+csStats[3, 11] <- round(csLO$upperLOA_lowerCI, digits = 2)
+csStats[3, 12] <- round(csLO$upperLOA_upperCI, digits = 2)
+csStats[3, 13] <- round((sum(abs(csLO$differences) > .15)/length(csLO$differences))*100, digits = 2)
 
 csMaxDiff <- max(c(max((csCL$differences)), max((csCO$differences)), max((csLO$differences))  ) )
-csMinDiff <- min(c(min((csCL$differences)), min((csCO$differences)), min((csLO$differences))  ) )
+csMinDiff <- min(c(min((csCL$differences)), min((csCO$differences)), min((csLO$differences))  ) )-0.05
 
 csMaxMean <- max(c(max((csCL$means)), max((csCO$means)), max((csLO$means))  ) )
 csMinMean <- min(c(min((csCL$means)), min((csCO$means)), min((csLO$means))  ) )
-```
 
-```{r cs differences}
+csXmin <- -Inf
+csXmax <- Inf
 
-round((sum(csCL$differences>0.15)/length(csCL$differences))*100, digits = 2)
-round((sum(csCO$differences>0.15)/length(csCO$differences))*100, digits = 2)
-round((sum(csLO$differences>0.15)/length(csLO$differences))*100, digits = 2)
-```
-
-```{r va differences}
-
-round((sum(vaCL$differences>0.2)/length(vaCL$differences))*100, digits = 2)
-round((sum(vaCO$differences>0.2)/length(vaCO$differences))*100, digits = 2)
-round((sum(vaLO$differences>0.2)/length(vaLO$differences))*100, digits = 2)
-
-round((sum(vaCL$differences>0.1)/length(vaCL$differences))*100, digits = 2)
-round((sum(vaCO$differences>0.1)/length(vaCO$differences))*100, digits = 2)
-round((sum(vaLO$differences>0.1)/length(vaLO$differences))*100, digits = 2)
-```
-
-# draw BA plots
-```{r CS BA}
-
-
-csCO_BA <- blandr.draw(df$csChart, df$csOnline)+
+csCO_BA <- blandr.draw(csFinal$Chart, csFinal$Online,
+                       ciShading = FALSE, ciDisplay=TRUE, plotter = "ggplot")+
   ylim(csMinDiff, csMaxDiff)+
-  xlim(csMinMean, csMaxMean)+ 
+  xlim(csMinMean, csMaxMean)+
+  theme_bw()+ 
   #labs(tag = "A")+
   theme(
     plot.title = element_blank()
-    )
+    )+ 
+  geom_rect(aes(xmin= csXmin, xmax= csXmax, ymin= csCO$biasLowerCI, ymax= csCO$biasUpperCI), 
+            fill = "grey50",
+            alpha = 0.02)+ 
+  geom_rect(aes(xmin= csXmin, xmax= csXmax, ymin= csCO$lowerLOA_lowerCI, ymax= csCO$lowerLOA_upperCI), 
+            fill = "grey50",
+            alpha = 0.02)+ 
+  geom_rect(aes(xmin= csXmin, xmax= csXmax, ymin= csCO$upperLOA_lowerCI, ymax= csCO$upperLOA_upperCI), 
+            fill = "grey50",
+            alpha = 0.02)
 
-csCL_BA <- blandr.draw(df$csChart, df$csLab)+
+csCL_BA <- blandr.draw(csFinal$Chart, csFinal$Lab,
+                       ciShading = FALSE, ciDisplay=TRUE, plotter = "ggplot")+
   ylim(csMinDiff, csMaxDiff)+
   xlim(csMinMean, csMaxMean)+
+  theme_bw()+
   #labs(tag = "B")+
   theme(
     plot.title = element_blank()
-    )
+    )+ 
+  geom_rect(aes(xmin= csXmin, xmax= csXmax, ymin= csCL$biasLowerCI, ymax= csCL$biasUpperCI), 
+            fill = "grey50",
+            alpha = 0.02)+ 
+  geom_rect(aes(xmin= csXmin, xmax= csXmax, ymin= csCL$lowerLOA_lowerCI, ymax= csCL$lowerLOA_upperCI), 
+            fill = "grey50",
+            alpha = 0.02)+ 
+  geom_rect(aes(xmin= csXmin, xmax= csXmax, ymin= csCL$upperLOA_lowerCI, ymax= csCL$upperLOA_upperCI), 
+            fill = "grey50",
+            alpha = 0.02)
 
-csLO_BA <- blandr.draw(df$csLab, df$csOnline)+
+csLO_BA <- blandr.draw(csFinal$Lab, csFinal$Online,
+                       ciShading = FALSE, ciDisplay=TRUE, plotter = "ggplot")+
   ylim(csMinDiff, csMaxDiff)+
   xlim(csMinMean, csMaxMean)+
+  theme_bw()+
   #labs(tag = "C")+
   theme(
     plot.title = element_blank()
-    )
+    )+ 
+  geom_rect(aes(xmin= csXmin, xmax= csXmax, ymin= csLO$biasLowerCI, ymax= csLO$biasUpperCI), 
+            fill = "grey50",
+            alpha = 0.02)+ 
+  geom_rect(aes(xmin= csXmin, xmax= csXmax, ymin= csLO$lowerLOA_lowerCI, ymax= csLO$lowerLOA_upperCI), 
+            fill = "grey50",
+            alpha = 0.02)+ 
+  geom_rect(aes(xmin= csXmin, xmax= csXmax, ymin= csLO$upperLOA_lowerCI, ymax= csLO$upperLOA_upperCI), 
+            fill = "grey50",
+            alpha = 0.02)
 
 
-#show(csCO_BA)
-#show(csCL_BA)
-#show(csLO_BA)
-```
 
-```{r arrange cs plots, fig.align='center', fig.width= 4, fig.height=6}
-
-csPlot <- ggarrange(csCO_BA + rremove("xlab") + rremove("x.text")  + rremove("ylab"), 
-          NULL,
-          csCL_BA + rremove("xlab") + rremove("x.text") +ylab("Differences (log units)"), 
-          NULL,
-          csLO_BA + rremove("ylab") + xlab("Means (log units)"),
+csPlot <- ggarrange(
+  csCO_BA + xlab("Means (log units)") + ylab("Clinical v OU \n Differences (log units)"), 
+          #NULL,
+  csCL_BA + xlab("Means (log units)") + ylab("Clinical v OSS \n Differences (log units)"), 
+          #NULL,
+  csLO_BA + xlab("Means (log units)") + ylab("OSS v OS \n Differences (log units)"),
           ncol = 1,
-          heights = c(1, -0.2, 1, -0.2, 1),
-          labels = c("A", "", "B", "", "C"),
+          #heights = c(1, -0.2, 1, -0.2, 1),
+          labels = c("A", "B", "C"),
           align = "hv")
 
 show(csPlot)
 
 ```
 
+SAVE THE PARTICIPANTS WHO APPEAR IN THE CS DATA and remove all others from va data 
+```{r cs participants}
 
-```{r va BA}
-vaUpper <- 0.2
-vaLower <- -0.25
+ppList <- unique(cs$id)
 
-vaCL_BA <- blandr.draw(df$vaChart, df$vaLab)+
-  scale_y_continuous(breaks = c(-0.4, -0.2, 0, 0.2), limits = c(vaLower, vaUpper))+scale_x_continuous(limits = c(-.20, .10), breaks = c(-0.2, -0.1, 0.0, .10))+ 
-  theme(
-  plot.title = element_blank())
-#show(vaCL_BA)
+vaPps <- va %>%
+  filter(id %in% ppList)
 
-vaCO_BA <- blandr.draw(df$vaChart, df$vaOnline)+
-  ylim(vaLower, vaUpper)+scale_y_continuous(breaks = c(-0.4, -0.2, 0, 0.2), limits = c(vaLower, vaUpper))+scale_x_continuous(limits = c(-.20, .10), breaks = c(-0.2, -0.1, 0.0, .10))+ 
-  theme(
-  plot.title = element_blank())
-vaLO_BA <- blandr.draw(df$vaLab, df$vaOnline)+ylim(vaLower, vaUpper)+scale_y_continuous(breaks = c(-0.4, -0.2, 0, 0.2), limits = c(vaLower, vaUpper))+
-  scale_x_continuous(limits = c(-.20, .10), breaks = c(-0.2, -0.1, 0.0, .10))+ 
-  theme(
-  plot.title = element_blank())
-
-show(vaCL_BA)
-show(vaCO_BA)
-show(vaLO_BA)
 ```
-```{r arrange va plots, fig.align='center', fig.width= 4, fig.height=6}
 
-vaPlot <- ggarrange(vaCO_BA + rremove("xlab") + rremove("x.text")  + rremove("ylab"), 
-          NULL,
-          vaCL_BA + rremove("xlab") + rremove("x.text") + ylab("Differences (logMAR)"), 
-          NULL,
-          vaLO_BA + rremove("ylab") + xlab("Means (logMAR)"),
+
+vaBA stats
+```{r vaBA}
+
+funList <- as.list(unique(vaPps$fun))
+gList <- as.list(unique(vaPps$guessRate))
+
+genericDF <- data.frame(matrix(
+  data = NA,
+  ncol = 14,
+  nrow =  length(funList)*length(gList)
+))
+
+
+names <- c("funciton", "guessRate",
+           "bias", "biasLower", "biasUpper",
+           "lowerLOA", "lowerLOA_lowerCI", "lowerLOA_upperCI",
+           "upperLOA", "upperLOA_lowerCI", "upperLOA_upperCI",
+           "point2diff", "point1diff", "ciDiff")
+
+colnames(genericDF) <- names
+
+vaChartLab <- genericDF
+vaChartOnline <- genericDF
+vaLabOnline <- genericDF
+
+p <- 0.95
+row <- 0
+
+for (f in funList) {
+  for (g in gList) {
+    
+    d <- vaPps %>%
+      filter(fun == f)%>%
+      filter(guessRate == g)
+    
+    
+    
+    row <- row + 1
+    
+    
+    vaChartLab[row, 1] <- f
+    vaChartLab[row, 2] <- g
+    vaChartLab[row, 3] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$bias, digits = 2)
+    vaChartLab[row, 4] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$biasLowerCI, digits = 2)
+    vaChartLab[row, 5] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$biasUpperCI, digits = 2)
+    vaChartLab[row, 6] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$lowerLOA, digits = 2)
+    vaChartLab[row, 7] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$lowerLOA_lowerCI, digits = 2)
+    vaChartLab[row, 8] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$lowerLOA_upperCI, digits = 2)
+    vaChartLab[row, 9] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$upperLOA, digits = 2)
+    vaChartLab[row, 10] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$upperLOA_lowerCI, digits = 2)
+    vaChartLab[row, 11] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$upperLOA_upperCI, digits = 2)
+    vaChartLab[row, 12] <- round((sum(abs(blandr.statistics(d$Chart, d$Lab, sig.level = p)$differences) > .2)/length(blandr.statistics(d$Chart, d$Lab, sig.level = p)$differences))*100, digits = 2)
+    vaChartLab[row, 13] <- round((sum(abs(blandr.statistics(d$Chart, d$Lab, sig.level = p)$differences) > .1)/length(blandr.statistics(d$Chart, d$Lab, sig.level = p)$differences))*100, digits = 2)
+    #vaChartLab[row, 14] <- round(blandr.statistics(d$Chart, d$Lab, sig.level = p)$upperLOA - blandr.statistics(d$Chart, d$Lab, sig.level = p)$lowerLOA, digits = 2)
+
+    vaCL <- blandr.draw(d$Chart, d$Lab)+
+      ggtitle(paste("Chart v Lab. Function: ", f, ", guess rate: 1/", 1/g, sep = "" ))
+      
+    show(vaCL)
+    
+    vaChartOnline[row, 1] <- f
+    vaChartOnline[row, 2] <- g
+    vaChartOnline[row, 3] <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$bias, digits = 2)
+    vaChartOnline[row, 4] <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$biasLowerCI, digits = 2)
+    vaChartOnline[row, 5] <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$biasUpperCI, digits = 2)
+    vaChartOnline[row, 6] <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$lowerLOA, digits = 2)
+    vaChartOnline[row, 7] <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$lowerLOA_lowerCI, digits = 2)
+    vaChartOnline[row, 8] <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$lowerLOA_upperCI, digits = 2)
+    vaChartOnline[row, 9] <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$upperLOA, digits = 2)
+    vaChartOnline[row, 10] <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$upperLOA_lowerCI, digits = 2)
+    vaChartOnline[row, 11] <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$upperLOA_upperCI, digits = 2)
+    vaChartOnline[row, 12] <- round((sum(abs(blandr.statistics(d$Chart, d$Online, sig.level = p)$differences) > .2)/length(blandr.statistics(d$Chart, d$Online, sig.level = p)$differences))*100, digits = 2)
+    vaChartOnline[row, 13] <- round((sum(abs(blandr.statistics(d$Chart, d$Online, sig.level = p)$differences) > .1)/length(blandr.statistics(d$Chart, d$Online, sig.level = p)$differences))*100, digits = 2)
+    #vaChartOnline <- round(blandr.statistics(d$Chart, d$Online, sig.level = p)$upperLOA - blandr.statistics(d$Chart, d$Online, sig.level = p)$lowerLOA, digits = 2)
+    
+    vaCO <- blandr.draw(d$Chart, d$Online)+
+      ggtitle(paste("Chart v Online. Function: ", f, ", guess rate: 1/", 1/g, sep = "" ))
+      
+    show(vaCO)
+    
+    vaLabOnline[row, 1] <- f
+    vaLabOnline[row, 2] <- g
+    vaLabOnline[row, 3] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$bias, digits = 2)
+    vaLabOnline[row, 4] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$biasLowerCI, digits = 2)
+    vaLabOnline[row, 5] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$biasUpperCI, digits = 2)
+    vaLabOnline[row, 6] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$lowerLOA, digits = 2)
+    vaLabOnline[row, 7] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$lowerLOA_lowerCI, digits = 2)
+    vaLabOnline[row, 8] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$lowerLOA_upperCI, digits = 2)
+    vaLabOnline[row, 9] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$upperLOA, digits = 2)
+    vaLabOnline[row, 10] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$upperLOA_lowerCI, digits = 2)
+    vaLabOnline[row, 11] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$upperLOA_upperCI, digits = 2)
+    vaLabOnline[row, 12] <- round((sum(abs(blandr.statistics(d$Lab, d$Online, sig.level = p)$differences) > .2)/length(blandr.statistics(d$Lab, d$Online, sig.level = p)$differences))*100, digits = 2)
+    vaLabOnline[row, 13] <- round((sum(abs(blandr.statistics(d$Lab, d$Online, sig.level = p)$differences) > .1)/length(blandr.statistics(d$Lab, d$Online, sig.level = p)$differences))*100, digits = 2)
+    #vaLabOnline[row, 14] <- round(blandr.statistics(d$Lab, d$Online, sig.level = p)$upperLOA - blandr.statistics(d$Lab, d$Online, sig.level = p)$lowerLOA, digits = 2)
+    
+    vaLO <- blandr.draw(d$Lab, d$Online)+
+      ggtitle(paste("Lab v Online. Function: ", f, ", guess rate: 1/", 1/g, sep = "" ))
+      
+    show(vaLO)
+    
+    
+  }
+  
+}
+
+vaChartOnline$ciDiff <- vaChartOnline$upperLOA - vaChartOnline$lowerLOA
+
+```
+
+We are basing the decision on the chart v online comparisons as this is most similar to what we want to use the test for
+```{r plot final va}
+
+vaStats <- data.frame(matrix(
+  data = NA,
+  ncol = 14,
+  nrow =  3
+))
+
+
+names <- c("setting", "funciton", "guessRate",
+           "bias", "biasLower", "biasUpper",
+           "lowerLOA", "lowerLOA_lowerCI", "lowerLOA_upperCI",
+           "upperLOA", "upperLOA_lowerCI", "upperLOA_upperCI",
+           "point2diff", "point1diff")
+
+colnames(vaStats) <- names
+
+vaFinal <- va %>%
+  filter(fun == "logistic_fun")%>%
+  filter(gR == "26")
+
+vaCO <- blandr.statistics(vaFinal$Chart, vaFinal$Online, sig.level = p)
+vaCL <- blandr.statistics(vaFinal$Chart, vaFinal$Lab, sig.level = p)
+vaLO <- blandr.statistics(vaFinal$Lab, vaFinal$Online, sig.level = p)
+
+
+vaStats[1, 1] <- "chart v online"
+vaStats[1, 2] <- "logistic_fun"
+vaStats[1, 3] <- "26"
+vaStats[1, 4] <- round(vaCO$bias, digits = 2)
+vaStats[1, 5] <- round(vaCO$biasLowerCI, digits = 2)
+vaStats[1, 6] <- round(vaCO$biasUpperCI, digits = 2)
+vaStats[1, 7] <- round(vaCO$lowerLOA, digits = 2)
+vaStats[1, 8] <- round(vaCO$lowerLOA_lowerCI, digits = 2)
+vaStats[1, 9] <- round(vaCO$lowerLOA_upperCI, digits = 2)
+vaStats[1, 10] <- round(vaCO$upperLOA, digits = 2)
+vaStats[1, 11] <- round(vaCO$upperLOA_lowerCI, digits = 2)
+vaStats[1, 12] <- round(vaCO$upperLOA_upperCI, digits = 2)
+vaStats[1, 13] <- round((sum(abs(vaCO$differences) > .2)/length(vaCO$differences))*100, digits = 2)
+vaStats[1, 14] <- round((sum(abs(vaCO$differences) > .1)/length(vaCO$differences))*100, digits = 2)
+
+vaStats[2, 1] <- "chart v lab"
+vaStats[2, 2] <- "logistic_fun"
+vaStats[2, 3] <- "26"
+vaStats[2, 4] <- round(vaCL$bias, digits = 2)
+vaStats[2, 5] <- round(vaCL$biasLowerCI, digits = 2)
+vaStats[2, 6] <- round(vaCL$biasUpperCI, digits = 2)
+vaStats[2, 7] <- round(vaCL$lowerLOA, digits = 2)
+vaStats[2, 8] <- round(vaCL$lowerLOA_lowerCI, digits = 2)
+vaStats[2, 9] <- round(vaCL$lowerLOA_upperCI, digits = 2)
+vaStats[2, 10] <- round(vaCL$upperLOA, digits = 2)
+vaStats[2, 11] <- round(vaCL$upperLOA_lowerCI, digits = 2)
+vaStats[2, 12] <- round(vaCL$upperLOA_upperCI, digits = 2)
+vaStats[2, 13] <- round((sum(abs(vaCL$differences) > .2)/length(vaCL$differences))*100, digits = 2)
+vaStats[2, 14] <- round((sum(abs(vaCL$differences) > .1)/length(vaCL$differences))*100, digits = 2)
+
+vaStats[3, 1] <- "lab v online"
+vaStats[3, 2] <- "logistic_fun"
+vaStats[3, 3] <- "26"
+vaStats[3, 4] <- round(vaLO$bias, digits = 2)
+vaStats[3, 5] <- round(vaLO$biasLowerCI, digits = 2)
+vaStats[3, 6] <- round(vaLO$biasUpperCI, digits = 2)
+vaStats[3, 7] <- round(vaLO$lowerLOA, digits = 2)
+vaStats[3, 8] <- round(vaLO$lowerLOA_lowerCI, digits = 2)
+vaStats[3, 9] <- round(vaLO$lowerLOA_upperCI, digits = 2)
+vaStats[3, 10] <- round(vaLO$upperLOA, digits = 2)
+vaStats[3, 11] <- round(vaLO$upperLOA_lowerCI, digits = 2)
+vaStats[3, 12] <- round(vaLO$upperLOA_upperCI, digits = 2)
+vaStats[3, 13] <- round((sum(abs(vaLO$differences) > .2)/length(vaLO$differences))*100, digits = 2)
+vaStats[3, 14] <- round((sum(abs(vaLO$differences) > .1)/length(vaLO$differences))*100, digits = 2)
+
+vaMaxDiff <- max(c(max((vaCL$differences)), max((vaCO$differences)), max((vaLO$differences))  ) )+0.01
+vaMinDiff <- min(c(min((vaCL$differences)), min((vaCO$differences)), min((vaLO$differences))  ) )-0.05
+
+vaMaxMean <- max(c(max((vaCL$means)), max((vaCO$means)), max((vaLO$means))  ) )
+vaMinMean <- min(c(min((vaCL$means)), min((vaCO$means)), min((vaLO$means))  ) )
+
+# order = Chart v OU, Chart v OSS, OSS v OU
+# order of areas to be shaded - bias, lower CI upper CI
+vaXmin <- -Inf
+vaXmax <- Inf
+
+
+
+vaCO_BA <- blandr.draw(vaFinal$Chart, vaFinal$Online,
+                       ciShading = FALSE, ciDisplay=TRUE, plotter = "ggplot")+
+  ylim(vaMinDiff, vaMaxDiff)+
+  xlim(vaMinMean, vaMaxMean)+
+  theme_bw()+ 
+  theme(
+    plot.title = element_blank()
+    )+ 
+  geom_rect(aes(xmin= vaXmin, xmax= vaXmax, ymin= vaCO$biasLowerCI, ymax= vaCO$biasUpperCI), 
+            fill = "grey50",
+            alpha = 0.02)+ 
+  geom_rect(aes(xmin= vaXmin, xmax= vaXmax, ymin= vaCO$lowerLOA_lowerCI, ymax= vaCO$lowerLOA_upperCI), 
+            fill = "grey50",
+            alpha = 0.02)+ 
+  geom_rect(aes(xmin= vaXmin, xmax= vaXmax, ymin= vaCO$upperLOA_lowerCI, ymax= vaCO$upperLOA_upperCI), 
+            fill = "grey50",
+            alpha = 0.02)
+
+vaCL_BA <- blandr.draw(vaFinal$Chart, vaFinal$Lab,
+                       ciShading = FALSE, ciDisplay=TRUE, plotter = "ggplot")+
+  ylim(vaMinDiff, vaMaxDiff)+
+  xlim(vaMinMean, vaMaxMean)+
+  theme_bw()+
+  theme(
+    plot.title = element_blank()
+    )+ 
+  geom_rect(aes(xmin= vaXmin, xmax= vaXmax, ymin= vaCL$biasLowerCI, ymax= vaCL$biasUpperCI), 
+            fill = "grey50",
+            alpha = 0.02)+ 
+  geom_rect(aes(xmin= vaXmin, xmax= vaXmax, ymin= vaCL$lowerLOA_lowerCI, ymax= vaCL$lowerLOA_upperCI), 
+            fill = "grey50",
+            alpha = 0.02)+ 
+  geom_rect(aes(xmin= vaXmin, xmax= vaXmax, ymin= vaCL$upperLOA_lowerCI, ymax= vaCL$upperLOA_upperCI), 
+            fill = "grey50",
+            alpha = 0.02)
+
+vaLO_BA <- blandr.draw(vaFinal$Lab, vaFinal$Online,
+                       ciShading = FALSE, ciDisplay=TRUE, plotter = "ggplot")+
+  ylim(vaMinDiff, vaMaxDiff)+
+  xlim(vaMinMean, vaMaxMean)+
+  theme_bw()+
+  theme(
+    plot.title = element_blank()
+    )+ 
+  geom_rect(aes(xmin= vaXmin, xmax= vaXmax, ymin= vaLO$biasLowerCI, ymax= vaLO$biasUpperCI), 
+            fill = "grey50",
+            alpha = 0.02)+ 
+  geom_rect(aes(xmin= vaXmin, xmax= vaXmax, ymin= vaLO$lowerLOA_lowerCI, ymax= vaLO$lowerLOA_upperCI), 
+            fill = "grey50",
+            alpha = 0.02)+ 
+  geom_rect(aes(xmin= vaXmin, xmax= vaXmax, ymin= vaLO$upperLOA_lowerCI, ymax= vaLO$upperLOA_upperCI), 
+            fill = "grey50",
+            alpha = 0.02)
+
+
+vaPlot <- ggarrange(
+  vaCO_BA + xlab("Means (logMAR)") + ylab("Clinical v OU \n Differences (logMAR)"), 
+          #NULL,
+  vaCL_BA + xlab("Means (logMAR)") + ylab("Clinical v OSS \n Differences (logMAR)"), 
+          #NULL,
+  vaLO_BA + xlab("Means (logMAR)") + ylab("OSS v OU \n Differences (logMAR)"),
           ncol = 1,
-          heights = c(1, -0.2, 1, -0.2, 1),
-          labels = c("A", "", "B", "", "C"),
+          #heights = c(1, -0.2, 1, -0.2, 1),
+          labels = c("A", "B", "C"),
           align = "hv")
 
 show(vaPlot)
 
 ```
 
-```{r param extract funciton}
-
-paramExt <- function(baObj){ # create a function to extract parameters
-  
-  comp <- deparse(substitute(baObj))
-  
-  bias <- round(baObj$bias, digits = 2)
-  biasUCI <- round(baObj$biasUpperCI, digits = 2)
-  biasLCI <- round(baObj$biasLowerCI, digits = 2)
-  
-  upperLoA <- round(baObj$upperLOA, digits = 2)
-  upperLoA_UCI <- round(baObj$upperLOA_upperCI, digits = 2)
-  upperLoA_LCI <- round(baObj$upperLOA_lowerCI, digits = 2)
-  
-  lowerLoA <- round(baObj$lowerLOA, digits = 2)
-  lowerLoA_UCI <- round(baObj$lowerLOA_upperCI, digits = 2)
-  lowerLoA_LCI <- round(baObj$lowerLOA_lowerCI, digits = 2)
-  
-  LoAdiff <- round(baObj$upperLOA - baObj$lowerLOA, digits = 2)
-  
-  print(paste(comp, "bias:", bias))
-  print(paste(comp, "bias UCI:", biasUCI))
-  print(paste(comp, "bias LCI:", biasLCI))
-  
-  print(paste(comp, "upper LoA:", upperLoA))
-  print(paste(comp, "upper LoA UCI:", upperLoA_UCI))
-  print(paste(comp, "upper LoA LCI:", upperLoA_LCI))
-  
-  print(paste(comp, "lower LoA:", lowerLoA))
-  print(paste(comp, "lower LoA UCI:", lowerLoA_UCI))
-  print(paste(comp, "lower LoA LCI:", lowerLoA_LCI))
-  
-  print(paste(comp, "LoA diff:", LoAdiff))
-  
-  print("END")
-  }
-
-
-
-```
-
-
-
-```{r cs params}
-
-paramExt(csCO)
-paramExt(csCL)
-paramExt(csLO)
-
-
-```
-
-```{r va params}
-
-paramExt(vaCO)
-paramExt(vaCL)
-paramExt(vaLO)
-```
-
-
 ```{r plot params}
 
-h = 13.5
-w = h*1.5
-d = 800
+h = 20
+w = (h/4)*3
+d = 300
 ```
 
 # save plots
-```{r cs save plots, eval = FALSE}
+```{r save plots, eval = FALSE}
 
-ggsave(paste("../figures/csBA.png", sep = ""), 
-       plot = csPlot, dpi = d,units = 'cm', height = 24, width = 18)
+#### submission plots
+ggsave(paste("../figures/SUBMISSION/figure1.tiff", sep = ""), 
+       plot = csPlot, dpi = d,units = 'cm', height = h, width = w)
 
-#ggsave(paste("../figures/csCL_BA",gDenom,".png", sep = ""), 
-#       plot = csCL_BA, dpi = d,units = 'cm', height = h, width = w)
-#ggsave(paste("../figures/csCL_BA",gDenom,".png", sep = ""), 
-#       plot = csCO_BA, dpi = d,units = 'cm', height = h, width = w)
-#ggsave(paste("../figures/csCL_BA",gDenom,".png", sep = ""), 
-#       plot = csLO_BA, dpi = d,units = 'cm', height = h, width = w)
-
+ggsave(paste("../figures/SUBMISSION/figure2.tiff", sep = ""), 
+       plot = vaPlot, dpi = d,units = 'cm', height = h, width = w)
 ```
 
 
-```{r save va plots, eval = FALSE}
-
-ggsave(paste("../figures/vaBA.png", sep = ""), 
-       plot = vaPlot, dpi = d,units = 'cm', height = 24, width = 18)
-
-#ggsave("../figures/vaCL_BA.png", plot = vaCL_BA, dpi = 800,units = 'cm', height = h, width = w)
-#ggsave("../figures/vaCO_BA.png", plot = vaCO_BA, dpi = 800,units = 'cm', height = h, width = w)
-#ggsave("../figures/vaLO_BA.png", plot = vaLO_BA, dpi = 800,units = 'cm', height = h, width = w)
-```
-
-```{r descriptives}
-
-require(rstatix)
-
-descriptives <- df %>%
-  summarise(
-    csCmean = mean(csChart),
-    csCsd = sd(csChart),
-    csUmean = mean(csOnline),
-    csUsd = sd(csOnline),
-    csSmean = mean(csLab),
-    csSsd = sd(csLab),
-    vaCmean = mean(vaChart), 
-    vaCsd = sd(vaChart),
-    vaUmean = mean(vaOnline),
-    vaUsd = sd(vaOnline),
-    vaSmean = mean(vaLab),
-    vaSsd = sd(vaLab)
-            )%>%                   # round all columns to 2 dp
-  mutate_if(is.numeric,
-            round,
-            digits = 2)
-
-longCS <- cs %>%
-  pivot_longer(!id, names_to = "test", values_to = "cs")
-
-longVA <- va %>%
-  pivot_longer(!id, names_to = "test", values_to = "va")
-
-# clearly not normal, use KW
-ggplot(longCS, aes(x = cs, color = test, fill = test))+
-  geom_density(alpha = .4)
-
-# visually approaching normal, SW test to cofirm
-ggplot(longVA, aes(x = va, color = test, fill = test))+
-  geom_density(alpha = .4)
-
-# lab values fail test, use KW test
-shapiro.test(va$vaOnline)
-shapiro.test(va$vaLab)
-shapiro.test(va$vaChart)
-
-kruskal.test(cs ~ test, data = longCS)
-kruskal.test(va ~ test, data = longVA)
-
-# BH chosen as this is the most powerful test
-pairwise.wilcox.test(longVA$va, longVA$test,
-                 p.adjust.method = "BH", paired = T)
-```
