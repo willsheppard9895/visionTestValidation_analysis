@@ -82,440 +82,6 @@ vaLmDf <- vaLmDf %>%
 show(head(vaLmDf))
 
 ```
-
-```{r cs plot 1, eval=FALSE}
-
-csPlotData <- csLmDf %>%
-  mutate(fullBlur = case_when(
-    condition == "2" ~ "binoBlur",
-    TRUE ~ "reducedBlur"
-  ))
-
-csBinoPlot <- ggplot(csPlotData)+
-  geom_jitter(aes(y = cs, x = fullBlur, group = fullBlur, color = test), size = 2, alpha = 1)+
-  stat_summary(
-    aes(y = cs, x = fullBlur,
-        group = test, color = test, fill = test),
-    geom = "point",
-    fun.y = "mean",
-    size = 4,
-    shape = 24
-  )+
-  stat_summary(
-    aes(y = cs, x = fullBlur,
-        group = test, col = test),
-    geom = "line",
-    fun.y = "mean",
-    linetype = "dashed"
-  )+ 
-  ylab("logCS")+
-  theme_bw()
-
-csBinoScaledPlot <- ggplot(csPlotData)+
-  geom_jitter(aes(y = cs.s, x = fullBlur, group = fullBlur, color = test), size = 2, alpha = 1)+
-  stat_summary(
-    aes(y = cs.s, x = fullBlur,
-        group = test, color = test, fill = test),
-    geom = "point",
-    fun.y = "mean",
-    size = 4,
-    shape = 24
-  )+
-  stat_summary(
-    aes(y = cs.s, x = fullBlur,
-        group = test, col = test),
-    geom = "line",
-    fun.y = "mean",
-    linetype = "dashed"
-  )+ 
-  ylab("Scaled logCS (z-score grouped by test type)")+
-  theme_bw()
-
-csArranged <- ggarrange(csBinoPlot + theme(axis.title.x = element_blank(),
-                                           axis.text.x = element_blank(),
-                             legend.title = element_blank()), 
-          csBinoScaledPlot + theme(axis.title.x = element_blank(),
-                                   legend.title = element_blank())+
-            scale_x_discrete(labels=c("binoBlur" = "Binocular blur", 
-                                      "reducedBlur" = "Less blur \n (collapsed across monocular blur and full vision)")),
-          ncol = 1, align = "v")
-show(csArranged)
-```
-
-let make the plot for mono v full vision
-```{r cs plot 2, eval=FALSE}
-
-csPlotDataShort <- csPlotData %>%
-  filter(fullBlur != "binoBlur")
-
-level_order = c("1", "0")
-
-csMonoPlot <- ggplot(csPlotDataShort)+
-  geom_jitter(aes(y = cs, x = condition, group = condition, color = test), size = 2, alpha = 1)+
-  stat_summary(
-    aes(y = cs, x = condition,
-        group = test, color = test, fill = test),
-    geom = "point",
-    fun.y = "mean",
-    size = 4,
-    shape = 24
-  )+
-  stat_summary(
-    aes(y = cs, x = condition,
-        group = test, col = test),
-    geom = "line",
-    fun.y = "mean",
-    linetype = "dashed"
-  )+ 
-  ylab("logCS")+
-  scale_x_discrete(limits = level_order)+
-  theme(axis.title.x = element_blank())+theme_bw()
-
-csMonoScaledPlot <- ggplot(csPlotDataShort)+
-  geom_jitter(aes(y = cs.s, x = condition, group = condition, color = test), size = 2, alpha = 1)+
-  stat_summary(
-    aes(y = cs.s, x = condition,
-        group = test, color = test, fill = test),
-    geom = "point",
-    fun.y = "mean",
-    size = 4,
-    shape = 24
-  )+
-  stat_summary(
-    aes(y = cs.s, x = condition,
-        group = test, col = test),
-    geom = "line",
-    fun.y = "mean",
-    linetype = "dashed"
-  )+ 
-  ylab("Scaled logCS (z-score grouped by test type)")+
-  scale_x_discrete(limits = level_order,
-                   labels=c("0" = "Full vision", 
-                                      "1" = "Monocular blur"))+
-  theme(axis.title.x = element_blank())+theme_bw()
-
-csArranged2 <- ggarrange(csMonoPlot + theme(axis.text.x = element_blank(),
-                             legend.title = element_blank(),
-                             axis.title.x = element_blank()), 
-          csMonoScaledPlot + theme(legend.title = element_blank(),
-                                   axis.title.x = element_blank()),
-          ncol = 1, align = "v")
-show(csArranged2)
-
-```
-
-
-
-```{r va plot 1, eval=FALSE}
-
-vaPlotData <- vaLmDf %>%
-  mutate(fullBlur = case_when(
-    condition == "2" ~ "binoBlur",
-    TRUE ~ "reducedBlur"
-  ))
-
-vaBinoPlot <- ggplot(vaPlotData)+
-  geom_jitter(aes(y = va, x = fullBlur, group = fullBlur, color = test), size = 2, alpha = 1)+
-  stat_summary(
-    aes(y = va, x = fullBlur,
-        group = test, color = test, fill = test),
-    geom = "point",
-    fun.y = "mean",
-    size = 4,
-    shape = 24
-  )+
-  stat_summary(
-    aes(y = va, x = fullBlur,
-        group = test, col = test),
-    geom = "line",
-    fun.y = "mean",
-    linetype = "dashed"
-  )+ 
-  ylab("VA (logMAR)")+
-  theme_bw()
-
-vaBinoScaledPlot <- ggplot(vaPlotData)+
-  geom_jitter(aes(y = va.s, x = fullBlur, group = fullBlur, color = test), size = 2, alpha = 1)+
-  stat_summary(
-    aes(y = va.s, x = fullBlur,
-        group = test, color = test, fill = test),
-    geom = "point",
-    fun.y = "mean",
-    size = 4,
-    shape = 24
-  )+
-  stat_summary(
-    aes(y = va.s, x = fullBlur,
-        group = test, col = test),
-    geom = "line",
-    fun.y = "mean",
-    linetype = "dashed"
-  )+ 
-  ylab("Scaled VA (z-score grouped by test type)")+
-  theme_bw()
-
-vaArranged <- ggarrange(vaBinoPlot + theme(axis.title.x = element_blank(),
-                                           axis.text.x = element_blank(),
-                             legend.title = element_blank(),
-                             legend.position = "none"), 
-          vaBinoScaledPlot + theme(axis.title.x = element_blank(),
-                                   legend.title = element_blank(),
-                             legend.position = "none")+
-            scale_x_discrete(labels=c("binoBlur" = "Binocular blur", 
-                                      "reducedBlur" = "Less blur \n (collapsed across monocular blur and full vision)")),
-          ncol = 1, align = "v")
-show(vaArranged)
-```
-
-```{r va plot 2, eval=FALSE}
-
-vaPlotDataShort <- vaPlotData %>%
-  filter(fullBlur != "binoBlur")
-
-vaPlotDataShort$condition <- as.factor(vaPlotDataShort$condition)
-
-vaMonoPlot <- ggplot(vaPlotDataShort)+
-  geom_jitter(aes(y = va, x = condition, group = condition, color = test), size = 2, alpha = 1)+
-  stat_summary(
-    aes(y = va, x = condition,
-        group = test, color = test, fill = test),
-    geom = "point",
-    fun.y = "mean",
-    size = 4,
-    shape = 24
-  )+
-  stat_summary(
-    aes(y = va, x = condition,
-        group = test, col = test),
-    geom = "line",
-    fun.y = "mean",
-    linetype = "dashed"
-  )+ 
-  ylab("VA (logMAR)")+
-  scale_x_discrete(limits = level_order)+
-  theme_bw()
-#show(vaMonoPlot)
-
-vaMonoScaledPlot <- ggplot(vaPlotDataShort)+
-  geom_jitter(aes(y = va.s, x = condition, group = condition, color = test), size = 2, alpha = 1)+
-  stat_summary(
-    aes(y = va.s, x = condition,
-        group = test, color = test, fill = test),
-    geom = "point",
-    fun.y = "mean",
-    size = 4,
-    shape = 24
-  )+
-  stat_summary(
-    aes(y = va.s, x = condition,
-        group = test, col = test),
-    geom = "line",
-    fun.y = "mean",
-    linetype = "dashed"
-  )+ 
-  ylab("Scaled VA (z-score grouped by test type)")+
-  scale_x_discrete(limits = level_order,
-                   labels=c("0" = "Full vision", 
-                            "1" = "Monocular blur"))+
-  theme_bw()
-
-#show(vaMonoScaledPlot)
-
-vaArranged2 <- ggarrange(vaMonoPlot + theme(axis.text.x = element_blank(),
-                             legend.title = element_blank(),
-                             axis.title.x = element_blank()), 
-          vaMonoScaledPlot + theme(legend.title = element_blank(),
-                                   axis.title.x = element_blank()),
-          ncol = 1, align = "v")
-show(vaArranged2)
-
-```
-
-```{r cs 4 panel patch work}
-
-require(patchwork)
-
-csYlim <- c(0.6, 2)
-csYbreaks <- c(1, 1.5, 2.0)
-csYlabs <- c("1.00", "1.50", "2.00")
-
-csSyLim <- c(0.5 , 5)
-csSyBreaks <- c(1, 2, 3, 4, 5)
-csSyLabs <- c("1.00", "2.00", "3.00", "4.00", "5.00")
-
-binoXlabs <- c("binoBlur" = "Binocular blur", "reducedBlur" = "Less blur \n (collapsed)")
-monoXlabs <- c("0" = "Full vision", "1" = "Monocular blur")
-
-csPlotData <- csLmDf %>%
-  mutate(fullBlur = case_when(
-    condition == "2" ~ "binoBlur",
-    TRUE ~ "reducedBlur"
-  ))%>%
-  mutate(test = case_when(
-    test == "online" ~ "Online",
-    test == "chart" ~ "Clinical"
-  ))
-
-csPlotDataShort <- csPlotData %>%
-  filter(fullBlur != "binoBlur")
-
-level_order = c("1", "0")
-
-
-csPlotData <- csLmDf %>%
-  mutate(fullBlur = case_when(
-    condition == "2" ~ "binoBlur",
-    TRUE ~ "reducedBlur"
-  ))
-
-
-# csTopLeft <- ggplot(csPlotData)+
-#   geom_jitter(aes(y = cs, x = fullBlur, group = fullBlur, color = test), size = 2, alpha = 1)+
-#   stat_summary(
-#     aes(y = cs, x = fullBlur,
-#         group = test, color = test, fill = test),
-#     geom = "point",
-#     fun.y = "mean",
-#     size = 4,
-#     shape = 24
-#   )+
-#   stat_summary(
-#     aes(y = cs, x = fullBlur,
-#         group = test, col = test),
-#     geom = "line",
-#     fun.y = "mean",
-#     linetype = "dashed"
-#   )+ 
-#   ylab("CS (log units)")+
-#   theme_bw() +
-#   theme(axis.title.x = element_blank(),
-#         legend.position = "none") +
-#   scale_y_continuous(limits = csYlim,
-#                      breaks = csYbreaks,
-#                      labels = csYlabs)+ 
-#   scale_x_discrete(labels = binoXlabs)
-
-csTopLeft <- ggplot(csPlotData)+
-  geom_jitter(aes(y = cs, x = fullBlur, group = fullBlur, color = test), size = 2, alpha = 1)+
-  stat_summary(
-    aes(y = cs, x = fullBlur,
-        color = "black", fill = test),
-    geom = "point",
-    fun.y = "mean",
-    size = 4,
-    shape = 24
-  )+
-  stat_summary(
-    aes(y = cs, x = fullBlur,
-        group = test, col = test),
-    geom = "line",
-    fun.y = "mean",
-    linetype = "dashed"
-  )+ 
-  ylab("CS (log units)")+
-  theme_bw() +
-  theme(axis.title.x = element_blank(),
-        legend.position = "none") +
-  scale_y_continuous(limits = csYlim,
-                     breaks = csYbreaks,
-                     labels = csYlabs)+ 
-  scale_x_discrete(labels = binoXlabs)
-
-
-csBottomLeft <- ggplot(csPlotDataShort)+
-  geom_jitter(aes(y = cs, x = condition, group = condition, color = test), size = 2, alpha = 1)+
-  stat_summary(
-    aes(y = cs, x = condition,
-        group = test, color = test, fill = test),
-    geom = "point",
-    fun.y = "mean",
-    size = 4,
-    shape = 24
-  )+
-  stat_summary(
-    aes(y = cs, x = condition,
-        group = test, col = test),
-    geom = "line",
-    fun.y = "mean",
-    linetype = "dashed"
-  )+ 
-  ylab("CS (log units)")+
-  scale_x_discrete(limits = level_order)+
-  theme_bw() +
-  theme(axis.title.x = element_blank(),
-        legend.title = element_blank(),
-        legend.position = c(0.76, 0.15),
-        legend.background = element_blank()) +
-  scale_y_continuous(limits = csYlim,
-                     breaks = csYbreaks,
-                     labels = csYlabs)+ 
-  scale_x_discrete(limits = level_order,
-                   labels = monoXlabs)
-
-csTopRight <- ggplot(csPlotData)+
-  geom_jitter(aes(y = cs.s, x = fullBlur, group = fullBlur, color = test), size = 2, alpha = 1)+
-  stat_summary(
-    aes(y = cs.s, x = fullBlur,
-        group = test, color = test, fill = test),
-    geom = "point",
-    fun.y = "mean",
-    size = 4,
-    shape = 24
-  )+
-  stat_summary(
-    aes(y = cs.s, x = fullBlur,
-        group = test, col = test),
-    geom = "line",
-    fun.y = "mean",
-    linetype = "dashed"
-  )+ 
-  ylab("Scaled CS (z-score grouped by type of test)")+
-  theme_bw() +
-  theme(axis.title.x = element_blank(),
-        legend.position = "none") +
-  scale_y_continuous(limits = csSyLim,
-                     breaks = csSyBreaks,
-                     labels = csSyLabs)+ 
-  scale_x_discrete(labels = binoXlabs)
-
-
-csBottomRight <- ggplot(csPlotDataShort)+
-  geom_jitter(aes(y = cs.s, x = condition, group = condition, color = test), size = 2, alpha = 1)+
-  stat_summary(
-    aes(y = cs.s, x = condition,
-        group = test, color = test, fill = test),
-    geom = "point",
-    fun.y = "mean",
-    size = 4,
-    shape = 24
-  )+
-  stat_summary(
-    aes(y = cs.s, x = condition,
-        group = test, col = test),
-    geom = "line",
-    fun.y = "mean",
-    linetype = "dashed"
-  )+ 
-  ylab("Scaled CS (z-score grouped by type of test)")+ 
-  scale_x_discrete(limits = level_order,
-                   labels = monoXlabs) +
-  theme_bw()+
-  theme(axis.title.x = element_blank(),
-        legend.title = element_blank(),
-        legend.position = "none") +
-  scale_y_continuous(limits = csSyLim,
-                     breaks = csSyBreaks,
-                     labels = csSyLabs)
-
-csPatchwork <- ((csTopLeft | csTopRight)/
-  (csBottomLeft | csBottomRight))+
-  plot_annotation(tag_levels = "A") &
-  theme(plot.tag = element_text(face = "bold"))
-
-show(csPatchwork)
-
-```
-
 ```{r cs 4 panel patch work black and white}
 
 require(patchwork)
@@ -563,13 +129,15 @@ csTopLeft <- ggplot()+
     data = filter(csPlotData, test == "online"),
     aes(y = cs, x = fullBlur, group = fullBlur),
     color = "black",
-    size = pointSize, alpha = 1, shape = 16
+    size = pointSize, alpha = 1, shape = 16,
+    height = 0, seed = 123
     )+
-  # Create points for chart data for online data. Black outline, white fill.
+  # Create points for chart data . Black outline, white fill.
   geom_jitter(data = filter(csPlotData, test == "chart"),
               aes(y = cs, x = fullBlur, group = fullBlur), 
               color = "black",
-              size = pointSize, alpha = 1, shape = 1)+
+              size = pointSize, alpha = 1, shape = 1,
+              height = 0, seed = 123)+
   # Create mean triangle for online data. Solid black.
   stat_summary(
     data = filter(csPlotData, test == "online"),
@@ -625,18 +193,20 @@ csTopLeft <- ggplot()+
 
 
 csTopRight <- ggplot()+
-  # Create points for online data for online data. Solid black
+  # Create points for online data. Solid black
   geom_jitter(
     data = filter(csPlotData, test == "online"),
     aes(y = cs.s, x = fullBlur, group = fullBlur),
     color = "black",
-    size = pointSize, alpha = 1, shape = 16
+    size = pointSize, alpha = 1, shape = 16,
+    height = 0, seed = 123
     )+
-  # Create points for chart data for online data. Black outline, white fill.
+  # Create points for chart data. Black outline, white fill.
   geom_jitter(data = filter(csPlotData, test == "chart"),
               aes(y = cs.s, x = fullBlur, group = fullBlur), 
               color = "black",
-              size = pointSize, alpha = 1, shape = 1)+
+              size = pointSize, alpha = 1, shape = 1,
+    height = 0, seed = 123)+
   # Create mean triangle for online data. Solid black.
   stat_summary(
     data = filter(csPlotData, test == "online"),
@@ -698,13 +268,15 @@ csBottomLeft <- ggplot()+
     data = filter(csPlotDataShort, test == "Online"),
     aes(y = cs, x = condition, group = condition, fill = "Online"),
     color = "black",
-    size = pointSize, alpha = 1, shape = 16
+    size = pointSize, alpha = 1, shape = 16,
+    height = 0, seed = 123
     )+
   # Create points for chart data for online data. Black outline, white fill.
   geom_jitter(data = filter(csPlotDataShort, test == "Clinical"),
               aes(y = cs, x = condition, group = condition, fill = "Clinical"), 
               color = "black",
-              size = pointSize, alpha = 1, shape = 1)+
+              size = pointSize, alpha = 1, shape = 1,
+              height = 0, seed = 123)+
   # Create mean triangle for online data. Solid black.
   stat_summary(
     data = filter(csPlotDataShort, test == "Online"),
@@ -764,18 +336,20 @@ csBottomLeft <- ggplot()+
 
 
 csBottomRight <- ggplot()+
-  # Create points for online data for online data. Solid black
+  # Create points for online data . Solid black
   geom_jitter(
     data = filter(csPlotDataShort, test == "Online"),
     aes(y = cs.s, x = condition, group = condition),
     color = "black",
-    size = pointSize, alpha = 1, shape = 16
+    size = pointSize, alpha = 1, shape = 16,
+    height = 0, seed = 123
     )+
-  # Create points for chart data for online data. Black outline, white fill.
+  # Create points for chart data. Black outline, white fill.
   geom_jitter(data = filter(csPlotDataShort, test == "Clinical"),
               aes(y = cs.s, x = condition, group = condition), 
               color = "black",
-              size = pointSize, alpha = 1, shape = 1)+
+              size = pointSize, alpha = 1, shape = 1,
+    height = 0, seed = 123)+
   # Create mean triangle for online data. Solid black.
   stat_summary(
     data = filter(csPlotDataShort, test == "Online"),
@@ -839,147 +413,6 @@ csPatchwork <- ((csTopLeft | csTopRight)/
 show(csPatchwork)
 ```
 
-```{r va patchwork 4 plot, eval=FALSE}
-
-vaPlotData <- vaLmDf %>%
-  mutate(fullBlur = case_when(
-    condition == "2" ~ "binoBlur",
-    TRUE ~ "reducedBlur"
-  ))%>%
-  mutate(test = case_when(
-    test == "online" ~ "Online",
-    test == "chart" ~ "Clinical"
-  ))
-
-vaPlotDataShort <- vaPlotData %>%
-  filter(fullBlur != "binoBlur")
-
-vaPlotDataShort$condition <- as.factor(vaPlotDataShort$condition)
-
-
-rawYlim <- c(-0.4, 0.5)
-scaledYlim <- c(0, 5)
-
-binoXlabs <- c("binoBlur" = "Binocular blur", "reducedBlur" = "Less blur \n (collapsed)")
-monoXlabs <- c("0" = "Full vision", "1" = "Monocular blur")
-
-vaTopLeft <- ggplot(vaPlotData)+
-  geom_jitter(aes(y = va, x = fullBlur, group = fullBlur, color = test), size = 2, alpha = 1)+
-  stat_summary(
-    aes(y = va, x = fullBlur,
-        group = test, color = test, fill = test),
-    geom = "point",
-    fun.y = "mean",
-    size = 4,
-    shape = 24
-  )+
-  stat_summary(
-    aes(y = va, x = fullBlur,
-        group = test, col = test),
-    geom = "line",
-    fun.y = "mean",
-    linetype = "dashed"
-  )+ 
-  ylab("VA (logMAR)")+
-  theme_bw() +
-  theme(legend.position = "none",
-        axis.title.x = element_blank()) +
-  scale_y_continuous(limits = rawYlim) + 
-  scale_x_discrete(labels = binoXlabs)
-
-
-vaBottomLeft <- ggplot(vaPlotDataShort)+
-  geom_jitter(aes(y = va, x = condition, group = condition, color = test), size = 2, alpha = 1)+
-  stat_summary(
-    aes(y = va, x = condition,
-        group = test, color = test, fill = test),
-    geom = "point",
-    fun.y = "mean",
-    size = 4,
-    shape = 24
-  )+
-  stat_summary(
-    aes(y = va, x = condition,
-        group = test, col = test),
-    geom = "line",
-    fun.y = "mean",
-    linetype = "dashed"
-  )+
-  theme_bw() +
-  theme(axis.title.x = element_blank(),
-        legend.title = element_blank(),
-        legend.position = c(0.7, 0.84),
-        legend.background = element_blank()) +
-  scale_y_continuous(limits = rawYlim)+
-  scale_x_discrete(limits = level_order,
-                   labels = monoXlabs)+ 
-  ylab("VA (logMAR)")
-
-
-
-vaTopRight <- ggplot(vaPlotData)+
-  geom_jitter(aes(y = va.s, x = fullBlur, group = fullBlur, color = test), size = 2, alpha = 1)+
-  stat_summary(
-    aes(y = va.s, x = fullBlur,
-        group = test, color = test, fill = test),
-    geom = "point",
-    fun.y = "mean",
-    size = 4,
-    shape = 24
-  )+
-  stat_summary(
-    aes(y = va.s, x = fullBlur,
-        group = test, col = test),
-    geom = "line",
-    fun.y = "mean",
-    linetype = "dashed"
-  )+ 
-  ylab("Scaled VA (z-score grouped by type of test)")+
-  theme_bw() +
-  theme(legend.position = "none",
-        axis.title.x = element_blank()) +
-  scale_y_continuous(limits = scaledYlim,
-                     labels = c("0.00", "1.00", "2.00", "3.00", "4.00", "5.00")) + 
-  scale_x_discrete(labels = binoXlabs)
-
-
-
-vaBottomRight <- ggplot(vaPlotDataShort)+
-  geom_jitter(aes(y = va.s, x = condition, group = condition, color = test), size = 2, alpha = 1)+
-  stat_summary(
-    aes(y = va.s, x = condition,
-        group = test, color = test, fill = test),
-    geom = "point",
-    fun.y = "mean",
-    size = 4,
-    shape = 24
-  )+
-  stat_summary(
-    aes(y = va.s, x = condition,
-        group = test, col = test),
-    geom = "line",
-    fun.y = "mean",
-    linetype = "dashed"
-  )+ 
-  theme_bw() +
-  theme(axis.title.x = element_blank(),
-        legend.title = element_blank(),
-        legend.position = "none") +
-  scale_y_continuous(limits = scaledYlim,
-                     labels = c("0.00", "1.00", "2.00", "3.00", "4.00", "5.00")) +
-  scale_x_discrete(limits = level_order,
-                   labels= monoXlabs)+ 
-  ylab("Scaled VA (z-score grouped by type of test)")
-
-vaPatchwork <- ((vaTopLeft | vaTopRight)/
-  (vaBottomLeft | vaBottomRight))+
-  plot_annotation(tag_levels = "A") &
-  theme(plot.tag = element_text(face = "bold"))
-
-show(vaPatchwork)
-
-```
-
 ```{r va patchwork 4 plot black and white}
 
 vaPlotData <- vaLmDf %>%
@@ -1010,13 +443,15 @@ vaTopLeft <- ggplot()+
     data = filter(vaPlotData, test == "Online"),
     aes(y = va, x = fullBlur, group = fullBlur),
     color = "black",
-    size = pointSize, alpha = 1, shape = 16
+    size = pointSize, alpha = 1, shape = 16,
+    height = 0, seed = 123
     )+
   # Create points for chart data for online data. Black outline, white fill.
   geom_jitter(data = filter(vaPlotData, test == "Clinical"),
               aes(y = va, x = fullBlur, group = fullBlur), 
               color = "black",
-              size = pointSize, alpha = 1, shape = 1)+
+              size = pointSize, alpha = 1, shape = 1,
+              height = 0, seed = 123)+
   # Create mean triangle for online data. Solid black.
   stat_summary(
     data = filter(vaPlotData, test == "Online"),
@@ -1075,13 +510,15 @@ vaTopRight <- ggplot()+
     data = filter(vaPlotData, test == "Online"),
     aes(y = va.s, x = fullBlur, group = fullBlur),
     color = "black",
-    size = pointSize, alpha = 1, shape = 16
+    size = pointSize, alpha = 1, shape = 16,
+    height = 0, seed = 123
     )+
   # Create points for chart data for online data. Black outline, white fill.
   geom_jitter(data = filter(vaPlotData, test == "Clinical"),
               aes(y = va.s, x = fullBlur, group = fullBlur), 
               color = "black",
-              size = pointSize, alpha = 1, shape = 1)+
+              size = pointSize, alpha = 1, shape = 1,
+              height = 0, seed = 123)+
   # Create mean triangle for online data. Solid black.
   stat_summary(
     data = filter(vaPlotData, test == "Online"),
@@ -1142,13 +579,15 @@ vaBottomLeft <- ggplot()+
     data = filter(vaPlotDataShort, test == "Online"),
     aes(y = va, x = condition, group = condition, fill = "Online"),
     color = "black",
-    size = pointSize, alpha = 1, shape = 16
+    size = pointSize, alpha = 1, shape = 16,
+    height = 0, seed = 123
     )+
   # Create points for chart data for online data. Black outline, white fill.
   geom_jitter(data = filter(vaPlotDataShort, test == "Clinical"),
               aes(y = va, x = condition, group = condition, fill = "Clinical"), 
               color = "black",
-              size = pointSize, alpha = 1, shape = 1)+
+              size = pointSize, alpha = 1, shape = 1,
+              height = 0, seed = 123)+
   # Create mean triangle for online data. Solid black.
   stat_summary(
     data = filter(vaPlotDataShort, test == "Online"),
@@ -1209,13 +648,15 @@ vaBottomRight <- ggplot()+
     data = filter(vaPlotDataShort, test == "Online"),
     aes(y = va.s, x = condition, group = condition),
     color = "black",
-    size = pointSize, alpha = 1, shape = 16
+    size = pointSize, alpha = 1, shape = 16,
+    height = 0, seed = 123
     )+
   # Create points for chart data for online data. Black outline, white fill.
   geom_jitter(data = filter(vaPlotDataShort, test == "Clinical"),
               aes(y = va.s, x = condition, group = condition), 
               color = "black",
-              size = pointSize, alpha = 1, shape = 1)+
+              size = pointSize, alpha = 1, shape = 1,
+              height = 0, seed = 123)+
   # Create mean triangle for online data. Solid black.
   stat_summary(
     data = filter(vaPlotDataShort, test == "Online"),

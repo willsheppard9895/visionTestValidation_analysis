@@ -214,7 +214,29 @@ visionTestsOnline <- visionTestsOnline %>%
 
 So therefore we now have a sample of `r length(unique(visionTestsLab$id))` participants
 
+extract the order in which the participants did the tasks
+```{r order effects}
+onlineDates <- visionTestsOnline %>%
+  select(id, UTC.Timestamp) %>%
+  group_by(id) %>%
+  summarise(timeStampOnline = first(UTC.Timestamp))
+
+labDates <- visionTestsLab %>%
+  select(id, UTC.Timestamp) %>%
+  group_by(id) %>%
+  summarise(timeStampLab = first(UTC.Timestamp))
+
+dates <- full_join(onlineDates, labDates, by = "id") %>%
+  mutate(onlineFirst = case_when(
+    timeStampOnline < timeStampLab ~ 1,
+    TRUE ~ 0
+  ))
+
+sum(dates$onlineFirst)
+```
+
 ```{r save data}
 write.csv(visionTestsLab, "../data/visionTestsLab.csv")
 write.csv(visionTestsOnline, "../data/visionTestsOnline.csv")
+write.csv(dates, "../data/sessionOrder.csv")
 ```

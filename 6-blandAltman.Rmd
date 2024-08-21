@@ -333,14 +333,30 @@ csLO_BA <- blandr.draw(csFinal$Lab, csFinal$Online,
 
 
 
+# csPlot <- ggarrange(
+#   csCO_BA + xlab("Mean CS score (log units)") + ylab("Clinical v OU \n CS score difference (log units)"), 
+#           #NULL,
+#   csCL_BA + xlab("Mean CS score (log units)") + ylab("Clinical v OSS \n CS score difference (log units)"), 
+#           #NULL,
+#   csLO_BA + xlab("Mean CS score (log units)") + ylab("OSS v OS \n CS score difference (log units)"),
+#           ncol = 1,
+#           #heights = c(1, -0.2, 1, -0.2, 1),
+#           labels = c("A", "B", "C"),
+#           align = "hv")
+
+library(ggeasy)
+
+margins <- c(0, 0.2, 0, 0.8)
+bottomMargin <- c(0, 0.2, 0.2, 0.8)
+
 csPlot <- ggarrange(
-  csCO_BA + xlab("Means (log units)") + ylab("Clinical v OU \n Differences (log units)"), 
-          #NULL,
-  csCL_BA + xlab("Means (log units)") + ylab("Clinical v OSS \n Differences (log units)"), 
-          #NULL,
-  csLO_BA + xlab("Means (log units)") + ylab("OSS v OS \n Differences (log units)"),
+  csCO_BA + ylab("Clinical v OU \n CS score difference (log units)") + 
+    theme(axis.title.x = element_blank(), plot.margin = unit(margins, 'lines')), 
+  csCL_BA + ylab("Clinical v OSS \n CS score difference (log units)") + 
+    theme(axis.title.x = element_blank(), plot.margin = unit(margins, 'lines')), 
+  csLO_BA + ylab("OSS v OS \n CS score difference (log units)") + xlab("Mean CS score (log units)") + 
+    theme(plot.margin = unit(bottomMargin, 'lines')),
           ncol = 1,
-          #heights = c(1, -0.2, 1, -0.2, 1),
           labels = c("A", "B", "C"),
           align = "hv")
 
@@ -606,16 +622,16 @@ vaLO_BA <- blandr.draw(vaFinal$Lab, vaFinal$Online,
   geom_rect(aes(xmin= vaXmin, xmax= vaXmax, ymin= vaLO$upperLOA_lowerCI, ymax= vaLO$upperLOA_upperCI), 
             fill = "grey50",
             alpha = 0.02)
-
+vaXlab <- "Mean VA score (logMAR)"
 
 vaPlot <- ggarrange(
-  vaCO_BA + xlab("Means (logMAR)") + ylab("Clinical v OU \n Differences (logMAR)"), 
-          #NULL,
-  vaCL_BA + xlab("Means (logMAR)") + ylab("Clinical v OSS \n Differences (logMAR)"), 
-          #NULL,
-  vaLO_BA + xlab("Means (logMAR)") + ylab("OSS v OU \n Differences (logMAR)"),
+  vaCO_BA + ylab("Clinical v OU \n VA score difference (logMAR)")+ 
+    theme(axis.title.x = element_blank(), plot.margin = unit(margins, 'lines')), 
+  vaCL_BA + ylab("Clinical v OSS \n VA score difference (logMAR)")+ 
+    theme(axis.title.x = element_blank(), plot.margin = unit(margins, 'lines')), 
+  vaLO_BA + xlab(vaXlab) + ylab("OSS v OU \n VA score difference (logMAR)")+ 
+    theme(plot.margin = unit(bottomMargin, 'lines')),
           ncol = 1,
-          #heights = c(1, -0.2, 1, -0.2, 1),
           labels = c("A", "B", "C"),
           align = "hv")
 
@@ -639,6 +655,51 @@ ggsave(paste("../figures/SUBMISSION/figure1.tiff", sep = ""),
 
 ggsave(paste("../figures/SUBMISSION/figure2.tiff", sep = ""), 
        plot = vaPlot, dpi = d,units = 'cm', height = h, width = w)
+```
+
+Check order effects
+```{r order effects}
+
+order = read.csv("../data/sessionOrder.csv")
+
+csOrder <- left_join(csFinal, order, by = "id") %>%
+  select(id, Lab, Online, onlineFirst) %>%
+  mutate(first = case_when(
+    onlineFirst == 1 ~ Online,
+    TRUE ~ Lab
+  ),
+  second = case_when(
+    onlineFirst == 0 ~ Online, 
+    TRUE ~ Lab
+  )
+  )
+
+vaOrder <- left_join(vaFinal, order, by = "id") %>%
+  select(id, Lab, Online, onlineFirst)%>%
+  mutate(first = case_when(
+    onlineFirst == 1 ~ Online,
+    TRUE ~ Lab
+  ),
+  second = case_when(
+    onlineFirst == 0 ~ Online, 
+    TRUE ~ Lab
+  )
+  )
+
+csOrder %>%
+  group_by(onlineFirst) %>%
+  summarise(Online = mean(Online),
+            Lab = mean(Lab))
+
+wilcox.test(csOrder$first, csOrder$second, paired = TRUE, alternative = "two.sided")
+
+vaOrder %>%
+  group_by(onlineFirst) %>%
+  summarise(Online = mean(Online),
+            Lab = mean(Lab))
+
+wilcox.test(vaOrder$first, vaOrder$second, paired = TRUE, alternative = "two.sided")
+
 ```
 
 
