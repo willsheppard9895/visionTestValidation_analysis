@@ -1,0 +1,90 @@
+---
+title: "Participant demographics"
+author: "Will Sheppard"
+date: "2023-08-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r libraries}
+library(tidyverse)
+pacman::p_load(
+  lubridate,  # general package for handling and converting dates  
+  parsedate,   # has function to "guess" messy dates
+  aweek,      # another option for converting dates to weeks, and weeks to dates
+  zoo,        # additional date/time functions
+  tidyverse,  # data management and visualization  
+  rio)        # data import/export
+```
+
+```{r import data}
+
+pps <- read.csv("../csPPS.csv")
+
+demo <- read.csv('./data_exp_102468-v2_questionnaire-gb9f.csv') %>%
+ rename(id = Participant.Public.ID)%>%
+  filter(id %in% pps$id)
+
+demoLab <- read.csv("../labNorway/data_exp_102467-v5_questionnaire-u67w.csv")%>%
+ rename(id = Participant.Public.ID)%>%
+  filter(id %in% pps$id)
+```
+
+
+```{r age}
+
+min(demo$dob.inmonths)/12
+max(demo$dob.inmonths)/12
+mean(demo$dob.inmonths)/12
+sd(demo$dob.inmonths)/12
+
+```
+
+```{r female}
+
+sex <- table(demo$sex)
+(sex[1]/length(demo$sex))*100
+```
+
+
+```{r education}
+
+table(demo$education)
+
+```
+
+```{r hand}
+
+hand <- table(demo$Handedness)
+hand
+```
+
+```{r time}
+onlineDate <- demo %>%
+  select(id, Local.Date) %>%
+  mutate(onlineDate = as.Date(
+    Local.Date, format = "%d/%m/%Y"
+  )) %>%
+  select(-Local.Date)
+
+labDate <- demoLab  %>%
+  select(id, Local.Date) %>%
+  mutate(labDate = as.Date(
+    Local.Date, format = "%d/%m/%Y"
+  )) %>%
+  select(-Local.Date)
+
+dateDF <- merge(onlineDate, labDate, by = "id")
+
+dateDF <- dateDF %>%
+  mutate(diff = abs(onlineDate - labDate))
+
+
+range(dateDF$diff)
+median(dateDF$diff)
+sd(dateDF$diff)
+```
